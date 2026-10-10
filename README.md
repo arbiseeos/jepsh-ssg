@@ -49,7 +49,6 @@ npx jepsh-ssg
 yarn global add jepsh-ssg
 # or locally
 yarn add -D jepsh-ssg
-
 # Using pnpm
 pnpm add -g jepsh-ssg
 # or locally
