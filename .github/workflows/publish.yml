@@ -1,51 +1,59 @@
-name: Publish jepsh-ssg to NPM
+name: Publish jepsh-ssg to npm
 
 on:
   release:
     types: [published]
 
 permissions:
-  contents: write
+  contents: write # push the version bump
+  id-token: write # npm provenance
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ github.event.repository.default_branch }}
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20.x"
-          registry-url: "https://registry.npmjs.org"
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Run lint
+      - name: Lint
         run: npm run lint
 
-      - name: Update package.json with release tag
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          echo "Updating package.json version to $TAG"
-          npm version "$TAG" --no-git-tag-version
+      - name: Check formatting
+        run: npm run format:check
 
-      - name: Commit and push version update
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add package.json
-          git commit -m "Update package.json to version $TAG"
-          git push origin ${{ github.event.repository.default_branch }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test
+        run: npm test
 
-      - name: Publish to NPM
-        run: npm publish
+      - name: Set version from release tag
+        run: npm version "$TAG" --no-git-tag-version --allow-same-version
+
+      - name: Commit version bump
+        run: |
+          if git diff --quiet -- package.json package-lock.json; then
+            echo "Version already up to date"
+          else
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add package.json package-lock.json
+            git commit -m "chore: release $TAG"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

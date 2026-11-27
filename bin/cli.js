@@ -1,19 +1,25 @@
 #!/usr/bin/env node
 
-import { program } from "commander";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { watch } from "chokidar";
+import { program } from "commander";
+import { clearCache, clearLogs, logConfig, logError, logHeader, logInfo, logSuccess, logSummary } from "../src/utils.js";
+import { buildOverrides } from "../src/options.js";
+import { expandRoutes } from "../src/routes.js";
+import { crawlRoutes, loadConfig, startServer } from "../src/index.js";
 
-import { loadConfig, startServer, crawlRoutes } from "../src/index.js";
-import { logHeader, logConfig, logInfo, logSuccess, logError, logSummary, clearCache, clearLogs } from "../src/utils.js";
+const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
 
 program
-  .storeOptionsAsProperties(false)
-  .option("--routes <routes>", "Comma-separated routes (e.g., /,/about,/users/:id[1,2])")
+  .name("jepsh-ssg")
+  .version(version)
+  .option("--routes <routes>", "Comma-separated routes, or 'auto' (e.g., /,/about,/users/:id[1,2])")
   .option("--base-path <path>", "Base path for routes")
   .option("--base-url <url>", "Base URL for sitemap")
   .option("-i, --input-dir <path>", "Input directory")
   .option("-o, --out-dir <path>", "Output directory")
-  .option("-p, --port <number>", "Port to run server on")
+  .option("-p, --port <number>", "Port to run server on (0 picks a free port)")
   .option("--concurrency <number>", "Number of concurrent crawls")
   .option("--flat-output", "Use flat output file structure")
   .option("--hydrate", "Inject hydration script")
@@ -21,144 +27,132 @@ program
   .option("--framework <name>", "Framework to use (react, vite, vue, svelte)")
   .option("--batch-size <number>", "Number of routes per batch")
   .option("--incremental", "Enable incremental builds")
-  .option("--timeout <number>", "Timeout per route in ms")
-  .option("--inline-css", "Enable CSS inlining")
+  .option("-t, --timeout <number>", "Timeout per route in ms")
+  .option("--inline-css", "Enable critical CSS inlining")
   .option("--sitemap", "Generate sitemap")
   .option("--exclude-routes <routes>", "Comma-separated routes to exclude")
   .option("--custom-selectors <selectors>", "Comma-separated custom selectors")
+  .option("--disable-sandbox", "Launch Chrome without its sandbox (needed in some containers/CI)")
+  .option("--browser-args <args>", "Comma-separated extra Chrome arguments")
   .option("--watch", "Watch for file changes and rebuild")
   .option("--dry-run", "Preview routes without writing files")
   .option("--clear-cache", "Clear cached data in .jepsh")
   .option("--clear-logs", "Clear logs in .jepsh")
-  .option("--clean", "Clear all cache and logs in .jepsh")
-  .allowUnknownOption(false)
-  .parse(process.argv);
-
-const options = program.opts();
+  .option("--clean", "Clear all cache and logs in .jepsh");
 
 async function runBuild(config, dryRun = false) {
-  try {
-    if (dryRun) {
-      logInfo("Dry run mode: Previewing routes ...");
-      config.routes.forEach((route) => {
-        const routePath = typeof route === "string" ? route : route.path;
-        logInfo(`Route: '${routePath}'`);
-      });
-      return;
+  if (dryRun) {
+    logInfo("Dry run mode: Previewing routes ...");
+    for (const route of expandRoutes(config.routes, { excludeRoutes: config.excludeRoutes, timeout: config.timeout })) {
+      logInfo(`Route: '${route.path}'`);
     }
 
-    const startTime = Date.now();
-    const stopServer = await startServer({
-      basePath: config.basePath,
-      inputDir: config.inputDir,
-      port: config.port,
-    });
+    return [];
+  }
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const results = await crawlRoutes(config);
-    stopServer();
+  const startTime = Date.now();
+  const server = await startServer({ basePath: config.basePath, inputDir: config.inputDir, port: config.port });
 
-    const totalDuration = Date.now() - startTime;
-    logSummary(results, totalDuration);
-    logSuccess("Done!");
-  } catch (error) {
-    logError(`Error: ${error.message}`);
-    throw error;
+  try {
+    const results = await crawlRoutes({ ...config, port: server.port });
+    logSummary(results, Date.now() - startTime);
+
+    return results;
+  } finally {
+    await server.close();
   }
 }
 
+async function runWatch(config, dryRun) {
+  let running = false;
+  let queued = false;
+  let timer = null;
+
+  const rebuild = async () => {
+    if (running) {
+      queued = true;
+
+      return;
+    }
+
+    running = true;
+
+    try {
+      await runBuild(config, dryRun);
+    } catch (error) {
+      logError(`Error: ${error.message}`);
+    } finally {
+      running = false;
+
+      if (queued) {
+        queued = false;
+        await rebuild();
+      }
+    }
+  };
+
+  logInfo("Starting watch mode ...");
+
+  await rebuild();
+
+  const outDir = path.resolve(config.outDir);
+  const watcher = watch(config.inputDir, {
+    persistent: true,
+    ignoreInitial: true,
+    ignored: (watchedPath) => path.resolve(watchedPath).startsWith(outDir),
+  });
+
+  watcher.on("all", (_event, changedPath) => {
+    logInfo(`File changed: '${changedPath}'. Triggering rebuild ...`);
+    clearTimeout(timer);
+    timer = setTimeout(rebuild, 300);
+  });
+}
+
 async function main() {
-  let serverClose;
-  process.on("SIGINT", async () => {
+  program.parse(process.argv);
+  const options = program.opts();
+
+  process.on("SIGINT", () => {
     logInfo("Received Ctrl+C, shutting down ...");
-    if (serverClose) await serverClose();
-    process.exit(0);
+    process.exit(130);
   });
 
   logHeader();
 
-  if (options.clearCache) {
+  if (options.clearCache || options.clean) {
     await clearCache();
-    logSuccess("Cache cleared successfully");
-    process.exit(0);
   }
-  if (options.clearLogs) {
+
+  if (options.clearLogs || options.clean) {
     await clearLogs();
-    logSuccess("Logs cleared successfully");
-    process.exit(0);
   }
-  if (options.clean) {
-    await clearCache();
-    await clearLogs();
-    logSuccess("All cache and logs cleared successfully");
-    process.exit(0);
+
+  if (options.clearCache || options.clearLogs || options.clean) {
+    logSuccess(options.clean ? "All cache and logs cleared successfully" : options.clearCache ? "Cache cleared successfully" : "Logs cleared successfully");
+
+    return;
   }
 
   try {
-    let config;
-    const hasCliOptions = Object.keys(options).length > 0;
-    if (!hasCliOptions) config = await loadConfig();
-
-    const mergedConfig = {
-      ...config,
-      ...(options.routes && {
-        routes: options.routes.split(",").map((route) => {
-          const match = route.match(/(.+):id\[(.+)\]/);
-          if (match) {
-            const [, path, ids] = match;
-            return {
-              path,
-              params: ids.split(",").map((id) => ({ id: id.trim() })),
-            };
-          }
-          return route.trim();
-        }),
-      }),
-      ...(options.basePath && { basePath: options.basePath }),
-      ...(options.baseUrl && { baseUrl: options.baseUrl }),
-      ...(options.inputDir && { inputDir: options.inputDir }),
-      ...(options.outDir && { outDir: options.outDir }),
-      ...(options.port && { port: parseInt(options.port, 10) }),
-      ...(options.concurrency && {
-        concurrency: parseInt(options.concurrency, 10),
-      }),
-      ...(options.flatOutput !== undefined && { flatOutput: true }),
-      ...(options.hydrate !== undefined && { hydrate: true }),
-      ...(options.hydrateBundle && { hydrateBundle: options.hydrateBundle }),
-      ...(options.framework && { framework: options.framework }),
-      ...(options.batchSize && { batchSize: parseInt(options.batchSize, 10) }),
-      ...(options.incremental !== undefined && { incremental: true }),
-      ...(options.timeout && { timeout: parseInt(options.timeout, 10) }),
-      ...(options.inlineCss !== undefined && { inlineCss: true }),
-      ...(options.sitemap !== undefined && { sitemap: true }),
-      ...(options.excludeRoutes && {
-        excludeRoutes: options.excludeRoutes.split(",").map((r) => r.trim()),
-      }),
-      ...(options.customSelectors && {
-        customSelectors: options.customSelectors.split(",").map((s) => s.trim()),
-      }),
-    };
-    logConfig(mergedConfig);
+    const config = await loadConfig({ overrides: buildOverrides(options) });
+    logConfig(config);
 
     if (options.watch) {
-      logInfo("Starting watch mode ...");
-      const watcher = watch(mergedConfig.inputDir, {
-        persistent: true,
-      });
-      watcher.on("change", async (path) => {
-        logInfo(`File changed: '${path}'. Triggering rebuild ...`);
-        try {
-          await runBuild(mergedConfig, options.dryRun);
-        } catch (error) {
-          process.exit(1);
-        }
-      });
-    } else {
-      await runBuild(mergedConfig, options.dryRun);
+      await runWatch(config, options.dryRun);
+
+      return;
+    }
+
+    const results = await runBuild(config, options.dryRun);
+    if (results.some((result) => result.status === "failed")) {
+      process.exitCode = 1;
+    } else if (!options.dryRun) {
+      logSuccess("Done!");
     }
   } catch (error) {
     logError(`Error: ${error.message}`);
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 

@@ -1,294 +1,345 @@
-import path from "path";
-import fs from "fs";
-import { mkdir, writeFile, readFile } from "fs/promises";
-import { createHash } from "crypto";
-
-import puppeteer from "puppeteer";
-import Critters from "critters";
-import fsExtra from "fs-extra";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import Beasties from "beasties";
 import pLimit from "p-limit";
 import prettyBytes from "pretty-bytes";
+import puppeteer from "puppeteer";
+import { createSpinner, formatBasePath, generateSitemap, logError, logInfo, logLabel, logStamp, logSuccess, logWarn } from "./utils.js";
+import { escapeRegExp, expandRoutes } from "./routes.js";
 
-import { createSpinner, logLabel, logStamp, logInfo, logSuccess, logWarn, logError, generateSitemap } from "./utils.js";
+const CACHE_DIR = ".jepsh/caches";
+const CACHE_FILE = path.join(CACHE_DIR, "ssg.json");
+const FRAMEWORK_SELECTORS = {
+  react: ["#root > *", "#app > *", "[data-reactroot]"],
+  vite: ["#root > *", "#app > *"],
+  vue: ["#app > *"],
+  svelte: ["[data-svelte]", "body > div > *"],
+};
 
-async function findBundle(inputDir) {
+function toLocalAssetPath(src, basePath) {
+  // Skip absolute and protocol-relative URLs (CDN scripts).
+  if (/^(?:[a-z][a-z\d+.-]*:)?\/\//i.test(src)) {
+    return null;
+  }
+
+  let local = src;
+  if (basePath && local.startsWith(`${basePath}/`)) {
+    local = local.slice(basePath.length);
+  }
+
+  return local.replace(/^\.?\//, "");
+}
+
+/** Locate the app's main JS bundle (relative to inputDir) for hydration. */
+export function findBundle(inputDir, basePath = "") {
   const indexPath = path.join(inputDir, "index.html");
   if (fs.existsSync(indexPath)) {
     const html = fs.readFileSync(indexPath, "utf-8");
-    const scriptMatch = html.match(/<script[^>]+src=["']([^"']+\.js)["'][^>]*>/i);
-    if (scriptMatch) {
-      const src = scriptMatch[1].replace(/^\//, "");
-      const scriptPath = path.join(inputDir, src);
-      if (fs.existsSync(scriptPath)) {
+    for (const match of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+\.js)["'][^>]*>/gi)) {
+      const src = toLocalAssetPath(match[1], basePath);
+      if (src && fs.existsSync(path.join(inputDir, src))) {
         return src;
       }
     }
   }
-  const files = fs.readdirSync(inputDir, { recursive: true });
-  const jsFile = files.find((file) => file.endsWith(".js") && !file.includes("chunk") && !file.includes("vendor"));
-  return jsFile || null;
+
+  const files = fs.readdirSync(inputDir, { recursive: true }).map((file) => String(file).replace(/\\/g, "/"));
+
+  return files.find((file) => file.endsWith(".js") && !file.includes("chunk") && !file.includes("vendor")) || null;
 }
 
-async function crawlRoutes({
+/**
+ * Add the hydration bundle as a module script unless the rendered page already
+ * references it. The serialized DOM normally contains the app's own script tag,
+ * so injecting unconditionally would load the bundle twice.
+ */
+export function injectHydrationScript(html, src, basePath = "") {
+  const scriptUrl = `${basePath}/${src.replace(/\\/g, "/")}`.replace(/\/+/g, "/");
+  const alreadyPresent = new RegExp(`<script\\b[^>]*\\bsrc=["']${escapeRegExp(scriptUrl)}["']`, "i");
+  if (alreadyPresent.test(html)) {
+    return { html, injected: false, scriptUrl };
+  }
+
+  const tag = `<script type="module" src="${scriptUrl}"></script>`;
+  const closingBody = html.lastIndexOf("</body>");
+  const result = closingBody === -1 ? html + tag : html.slice(0, closingBody) + tag + html.slice(closingBody);
+
+  return { html: result, injected: true, scriptUrl };
+}
+
+function findSourceFile(inputDir, route) {
+  const shell = path.join(inputDir, "index.html");
+  if (route === "/") {
+    return shell;
+  }
+
+  const candidates = [path.join(inputDir, route, "index.html"), path.join(inputDir, `${route}.html`)];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || shell;
+}
+
+function hashFile(filePath) {
+  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+async function loadCache(fingerprint) {
+  const empty = { fingerprint, routes: {} };
+  if (!fs.existsSync(CACHE_FILE)) {
+    return empty;
+  }
+
+  try {
+    const cache = JSON.parse(await readFile(CACHE_FILE, "utf-8"));
+    if (cache.fingerprint !== fingerprint) {
+      logInfo("Build options changed since the last run. Ignoring cache");
+
+      return empty;
+    }
+
+    logInfo(`Loaded cache from '${CACHE_FILE}'`);
+
+    return cache;
+  } catch (error) {
+    logWarn(`Failed to load cache: ${error.message}`);
+
+    return empty;
+  }
+}
+
+export async function crawlRoutes({
   routes,
   basePath,
   baseUrl,
   inputDir,
   outDir,
   port,
-  concurrency,
-  flatOutput,
-  hydrate,
-  hydrateBundle,
-  framework,
-  batchSize,
-  incremental,
-  timeout,
-  inlineCss,
-  sitemap,
+  concurrency = 3,
+  flatOutput = false,
+  hydrate = false,
+  hydrateBundle = null,
+  framework = "react",
+  batchSize = 50,
+  incremental = false,
+  timeout = 30000,
+  inlineCss = false,
+  sitemap = false,
   excludeRoutes = [],
   customSelectors = [],
+  disableSandbox = false,
+  browserArgs = [],
 }) {
-  const cacheDir = ".jepsh/caches";
   const results = [];
   const spinner = createSpinner("Starting route crawling ...");
-  const formattedBasePath = basePath && basePath !== "/" ? (basePath.startsWith("/") ? basePath : `/${basePath}`) : "";
+  const formattedBasePath = formatBasePath(basePath);
+  const processedRoutes = expandRoutes(routes, { excludeRoutes, timeout });
 
-  await mkdir(cacheDir, { recursive: true });
-  const cacheFile = path.join(cacheDir, "ssg.json");
-  let cache = {};
-  if (incremental && fs.existsSync(cacheFile)) {
-    try {
-      cache = JSON.parse(await readFile(cacheFile, "utf-8"));
-      logInfo(`Loaded cache from '${cacheFile}'`);
-    } catch (error) {
-      logWarn(`Failed to load cache: ${error.message}`);
+  const outputPathFor = (route) => {
+    if (route === "/") {
+      return path.join(outDir, "index.html");
     }
-  }
 
-  const processedRoutes = [];
-  for (const route of routes) {
-    if (typeof route === "string") {
-      if (!excludeRoutes.some((ex) => route.match(new RegExp(`^${ex.replace("*", ".*")}$`)))) {
-        processedRoutes.push({ path: route, timeout });
-      }
-    } else if (route.path && route.params) {
-      for (const paramSet of route.params) {
-        let dynamicRoute = route.path;
-        for (const [key, value] of Object.entries(paramSet)) dynamicRoute = dynamicRoute.replace(`:${key}`, value);
-        if (!excludeRoutes.some((ex) => dynamicRoute.match(new RegExp(`^${ex.replace("*", ".*")}$`)))) {
-          processedRoutes.push({
-            path: dynamicRoute,
-            timeout: route.timeout || timeout,
-          });
-        }
-      }
+    return flatOutput ? path.join(outDir, `${route.replace(/^\//, "")}.html`) : path.join(outDir, route, "index.html");
+  };
+
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify({ hydrate, hydrateBundle, framework, customSelectors, inlineCss, flatOutput, basePath: formattedBasePath }))
+    .digest("hex");
+
+  await mkdir(CACHE_DIR, { recursive: true });
+
+  const cache = incremental ? await loadCache(fingerprint) : { fingerprint, routes: {} };
+
+  // Decide which routes can be skipped before copying inputDir over outDir,
+  // so previously rendered pages are not clobbered by the raw SPA shell.
+  const toCrawl = [];
+  const preserved = new Set();
+
+  for (const route of processedRoutes) {
+    const outputPath = outputPathFor(route.path);
+    const sourceHash = fs.existsSync(path.join(inputDir, "index.html")) ? hashFile(findSourceFile(inputDir, route.path)) : null;
+    const unchanged = incremental && sourceHash && cache.routes[route.path] === sourceHash && fs.existsSync(outputPath);
+    if (unchanged) {
+      preserved.add(path.resolve(outputPath));
+
+      logInfo(`Skipped '${route.path}' (unchanged)`);
+      results.push({ route: route.path, status: "skipped", filePath: outputPath, fileSize: prettyBytes(fs.statSync(outputPath).size), duration: 0 });
     } else {
-      if (!excludeRoutes.some((ex) => route.path.match(new RegExp(`^${ex.replace("*", ".*")}$`)))) {
-        processedRoutes.push({
-          path: route.path,
-          timeout: route.timeout || timeout,
-        });
-      }
+      toCrawl.push({ ...route, sourceHash });
     }
   }
 
-  fsExtra.copySync(inputDir, outDir);
+  fs.cpSync(inputDir, outDir, { recursive: true, filter: (_src, dest) => !preserved.has(path.resolve(dest)) });
   spinner.succeed(`${logStamp()} ${logLabel("success")} Copied '${inputDir}' → '${outDir}'`);
 
   let scriptSrc = null;
+
   if (hydrate) {
-    scriptSrc = hydrateBundle || (await findBundle(inputDir));
-    if (scriptSrc) {
-      const fullPath = path.join(inputDir, scriptSrc);
-      if (!fs.existsSync(fullPath)) {
-        logWarn(`Hydration bundle '${scriptSrc}' not found in '${inputDir}'. Skipping script injection`);
-        scriptSrc = null;
-      } else {
-        logInfo(`Using hydration bundle: '${scriptSrc}'`);
-      }
+    scriptSrc = hydrateBundle ? hydrateBundle.replace(/^\.?\//, "") : findBundle(inputDir, formattedBasePath);
+    if (scriptSrc && !fs.existsSync(path.join(inputDir, scriptSrc))) {
+      logWarn(`Hydration bundle '${scriptSrc}' not found in '${inputDir}'. Skipping script injection`);
+      scriptSrc = null;
+    } else if (scriptSrc) {
+      logInfo(`Using hydration bundle: '${scriptSrc}'`);
     } else {
       logWarn(`No hydration bundle found in '${inputDir}'. Skipping script injection`);
     }
   }
 
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
-  });
+  if (toCrawl.length > 0) {
+    const selectors = customSelectors.length > 0 ? customSelectors : FRAMEWORK_SELECTORS[framework] || ["body > div > *"];
+    const launchArgs = [...(disableSandbox ? ["--no-sandbox", "--disable-setuid-sandbox"] : []), ...browserArgs];
+    const browser = await puppeteer.launch({ headless: true, args: launchArgs });
 
-  const frameworks = {
-    react: ["#root > *", "#app > *", "[data-reactroot]"],
-    vite: ["#root > *", "#app > *"],
-    vue: ["#app > *"],
-    svelte: ["[data-svelte]", "body > div > *"],
-  };
-  const selectors = customSelectors.length > 0 ? customSelectors : frameworks[framework] || ["body > div > *"];
+    try {
+      // One page per concurrent slot. A page is checked out for the duration of
+      // a route, so two routes never navigate the same page at once.
+      const idlePages = [];
 
-  const pagePool = [];
-  for (let i = 0; i < Math.min(concurrency, 3); i++) {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1200, height: 800 });
-    await page.setRequestInterception(true);
-    page.on("request", (req) => {
-      if (["image", "font"].includes(req.resourceType()) && !inlineCss) req.abort();
-      else req.continue();
-    });
-    page.on("console", (msg) => {
-      if (msg.type() === "error") logWarn(`Browser console error: ${msg.text()}`);
-    });
-    page.on("pageerror", (error) => {
-      logWarn(`Page error: ${error.message}`);
-    });
-    pagePool.push(page);
-  }
-
-  const limit = pLimit(concurrency);
-  const critters = new Critters({ path: inputDir, logLevel: "silent" });
-
-  for (let i = 0; i < processedRoutes.length; i += batchSize) {
-    const batch = processedRoutes.slice(i, i + batchSize);
-    const batchSpinner = createSpinner(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(processedRoutes.length / batchSize)} (${batch.length} routes) ...`);
-
-    await Promise.all(
-      batch.map(({ path: route, timeout: routeTimeout }, index) =>
-        limit(async () => {
-          const startTime = Date.now();
-          const page = pagePool[index % pagePool.length];
-          const crawlPath = `${formattedBasePath}${route}`.replace(/\/+/g, "/");
-          const fullUrl = `http://localhost:${port}${crawlPath}`;
-          const routeSpinner = createSpinner(`Crawling: '${fullUrl}' ...`);
-
-          let filePath;
-          if (route === "/") {
-            filePath = path.join(inputDir, "index.html");
+      for (let i = 0; i < Math.min(concurrency, toCrawl.length); i++) {
+        const page = await browser.newPage();
+        await page.setViewport({ width: 1200, height: 800 });
+        await page.setRequestInterception(true);
+        page.on("request", (req) => {
+          if (["image", "font"].includes(req.resourceType()) && !inlineCss) {
+            req.abort();
           } else {
-            filePath = path.join(inputDir, route, "index.html");
-            if (!fs.existsSync(filePath) && !path.extname(route)) {
-              const htmlPath = path.join(inputDir, `${route}.html`);
-              if (fs.existsSync(htmlPath)) filePath = htmlPath;
-            }
+            req.continue();
           }
+        });
 
-          if (incremental && fs.existsSync(filePath)) {
-            const content = fs.readFileSync(filePath, "utf-8");
-            const hash = createHash("md5").update(content).digest("hex");
-            logInfo(`Checking cache for ${route}: file=${filePath}, hash=${hash}, cachedHash=${cache[route] || "none"}`);
-            if (cache[route] === hash) {
-              routeSpinner.succeed(`${logStamp()} ${logLabel("info")} Skipped '${route}' (unchanged)`);
-              results.push({
-                route,
-                status: "skipped",
-                filePath,
-                fileSize: fs.existsSync(filePath) ? prettyBytes(fs.statSync(filePath).size) : "0 B",
-                duration: 0,
-              });
-              return;
-            }
-            cache[route] = hash;
-          } else if (incremental && !fs.existsSync(filePath)) {
-            logWarn(`No source file found for '${route}' at '${filePath}'. Crawling without cache ...`);
+        page.on("console", (msg) => {
+          if (msg.type() === "error") {
+            logWarn(`Browser console error: ${msg.text()}`);
           }
+        });
 
-          try {
-            await page.goto(fullUrl, {
-              waitUntil: "networkidle0",
-              timeout: routeTimeout,
-            });
+        page.on("pageerror", (error) => {
+          logWarn(`Page error: ${error.message}`);
+        });
 
-            let contentFound = false;
-            for (const selector of selectors) {
+        idlePages.push(page);
+      }
+
+      const limit = pLimit(concurrency);
+      const beasties = new Beasties({ path: inputDir, publicPath: formattedBasePath ? `${formattedBasePath}/` : "/", logLevel: "silent" });
+      const batchCount = Math.ceil(toCrawl.length / batchSize);
+
+      for (let i = 0; i < toCrawl.length; i += batchSize) {
+        const batch = toCrawl.slice(i, i + batchSize);
+        const batchNumber = Math.floor(i / batchSize) + 1;
+        const batchSpinner = createSpinner(`Processing batch ${batchNumber}/${batchCount} (${batch.length} routes) ...`);
+
+        await Promise.all(
+          batch.map(({ path: route, timeout: routeTimeout, sourceHash }) =>
+            limit(async () => {
+              const page = idlePages.pop();
+              const startTime = Date.now();
+              const crawlPath = `${formattedBasePath}${route}`.replace(/\/+/g, "/");
+              const fullUrl = `http://127.0.0.1:${port}${crawlPath}`;
+              const routeSpinner = createSpinner(`Crawling: '${fullUrl}' ...`);
+
               try {
-                await page.waitForSelector(selector, { timeout: 5000 });
-                contentFound = true;
-                routeSpinner.succeed(`${logStamp()} ${logLabel("success")} Content found with selector: '${selector}' for '${route}'`);
-                break;
+                await page.goto(fullUrl, { waitUntil: "networkidle0", timeout: routeTimeout });
+                let contentFound = false;
+
+                for (const selector of selectors) {
+                  try {
+                    await page.waitForSelector(selector, { timeout: 5000 });
+                    contentFound = true;
+                    routeSpinner.succeed(`${logStamp()} ${logLabel("success")} Content found with selector: '${selector}' for '${route}'`);
+
+                    break;
+                  } catch {
+                    logWarn(`Selector '${selector}' not found for '${route}', trying next ...`);
+                  }
+                }
+
+                if (!contentFound) {
+                  logWarn(`No framework content selectors found for '${route}', waiting for general content ...`);
+                  await page.waitForFunction(() => document.body.children.length > 0 && document.body.textContent.trim().length > 0, { timeout: 10000 });
+                  routeSpinner.succeed(`${logStamp()} ${logLabel("success")} General content loaded for '${route}'`);
+                }
+
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+                let html = await page.content();
+
+                if (inlineCss) {
+                  try {
+                    html = await beasties.process(html);
+                    logSuccess(`CSS inlined for '${route}'`);
+                  } catch (error) {
+                    logWarn(`CSS inlining failed for '${route}': ${error.message}`);
+                  }
+                }
+
+                if (hydrate && scriptSrc) {
+                  const injection = injectHydrationScript(html, scriptSrc, formattedBasePath);
+                  html = injection.html;
+                  if (injection.injected) {
+                    logSuccess(`Hydration script injected for '${route}': '${injection.scriptUrl}'`);
+                  } else {
+                    logInfo(`Hydration bundle already present for '${route}': '${injection.scriptUrl}'`);
+                  }
+                }
+
+                const outputFilePath = outputPathFor(route);
+                await mkdir(path.dirname(outputFilePath), { recursive: true });
+                await writeFile(outputFilePath, html, "utf-8");
+                const fileSize = prettyBytes(fs.statSync(outputFilePath).size);
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                logSuccess(`'${route}' → '${outputFilePath}' (${fileSize}) ${duration}s`);
+                results.push({ route, status: "success", filePath: outputFilePath, fileSize, duration });
+
+                // Only record a route in the cache once it has rendered successfully.
+                if (incremental && sourceHash) {
+                  cache.routes[route] = sourceHash;
+                }
               } catch (error) {
-                logWarn(`Selector '${selector}' not found for '${route}', trying next ...`);
+                logError(`Crawling failed for route '${route}': ${error.message}`);
+
+                try {
+                  const screenshotPath = path.join(".jepsh/debug", `screenshots/ssg/${route.replace(/\/+/g, "_")}.png`);
+                  await mkdir(path.dirname(screenshotPath), { recursive: true });
+                  await page.screenshot({ path: screenshotPath });
+                  logInfo(`Debug screenshot saved: '${screenshotPath}'`);
+                } catch {
+                  logError("Could not save debug screenshot");
+                }
+
+                routeSpinner.fail(`${logStamp()} ${logLabel("error")} Failed: '${route}'`);
+                results.push({ route, status: "failed", error: error.message });
+              } finally {
+                idlePages.push(page);
               }
-            }
+            })
+          )
+        );
 
-            if (!contentFound) {
-              logWarn(`No framework content selectors found for '${route}', waiting for general content ...`);
-              await page.waitForFunction(() => document.body.children.length > 0 && document.body.textContent.trim().length > 0, { timeout: 10000 });
-              routeSpinner.succeed(`${logStamp()} ${logLabel("success")} General content loaded for '${route}'`);
-            }
-
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-
-            let html = await page.content();
-            if (inlineCss) {
-              try {
-                html = await critters.process(html);
-                logSuccess(`CSS inlined for '${route}'`);
-              } catch (error) {
-                logWarn(`CSS inlining failed for '${route}': ${error.message}`);
-              }
-            }
-
-            if (hydrate && scriptSrc) {
-              const scriptPath = `/${scriptSrc.replace(/\\/g, "/")}`;
-              html = html.replace("</body>", `<script src="${formattedBasePath}${scriptPath}" defer></script></body>`);
-              logSuccess(`Hydration script injected for '${route}': '${scriptPath}'`);
-            }
-
-            let outputFilePath;
-            if (route === "/") outputFilePath = path.join(outDir, "index.html");
-            else outputFilePath = flatOutput ? path.join(outDir, `${route.replace(/^\//, "")}.html`) : path.join(outDir, route, "index.html");
-
-            await mkdir(path.dirname(outputFilePath), { recursive: true });
-            await writeFile(outputFilePath, html, "utf-8");
-            const fileSize = prettyBytes(fs.statSync(outputFilePath).size);
-            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-            logSuccess(`'${route}' → '${outputFilePath}' (${fileSize}) ${duration}s`);
-            results.push({
-              route,
-              status: "success",
-              filePath: outputFilePath,
-              fileSize,
-              duration,
-            });
-
-            if (incremental && fs.existsSync(filePath)) {
-              cache[route] = createHash("md5").update(fs.readFileSync(filePath, "utf-8")).digest("hex");
-            }
-          } catch (error) {
-            logError(`Crawling failed for route '${route}': ${error.message}`);
-            try {
-              const screenshotPath = path.join(".jepsh/debug", `screenshots/ssg/${route.replace(/\/+/g, "_")}.png`);
-              await mkdir(path.dirname(screenshotPath), { recursive: true });
-              await page.screenshot({ path: screenshotPath });
-              logInfo(`Debug screenshot saved: '${screenshotPath}'`);
-            } catch (error) {
-              logError("Could not save debug screenshot");
-            }
-            routeSpinner.fail(`${logStamp()} ${logLabel("error")} Failed: '${route}'`);
-            results.push({ route, status: "failed", error: error.message });
-          }
-        })
-      )
-    );
-    batchSpinner.succeed(`${logStamp()} ${logLabel("success")} Batch ${Math.floor(i / batchSize) + 1} completed`);
+        batchSpinner.succeed(`${logStamp()} ${logLabel("success")} Batch ${batchNumber} completed`);
+      }
+    } finally {
+      await browser.close();
+    }
   }
 
   if (incremental) {
     try {
-      await writeFile(cacheFile, JSON.stringify(cache, null, 2), "utf-8");
-      logInfo(`Cache saved: '${cacheFile}'`);
+      await writeFile(CACHE_FILE, JSON.stringify(cache, null, 2), "utf-8");
+      logInfo(`Cache saved: '${CACHE_FILE}'`);
     } catch (error) {
       logWarn(`Failed to save cache: ${error.message}`);
     }
   }
 
   if (sitemap) {
-    const sitemapPath = await generateSitemap(routes, baseUrl, outDir, formattedBasePath);
+    const routePaths = processedRoutes.map((route) => route.path);
+    const sitemapPath = await generateSitemap(routePaths, baseUrl, outDir, formattedBasePath);
     logSuccess(`Sitemap generated: '${sitemapPath}'`);
   }
 
-  await Promise.all(pagePool.map((page) => page.close()));
-  await browser.close();
   spinner.succeed(`${logStamp()} ${logLabel("success")} Crawling finished`);
+
   return results;
 }
-
-export { crawlRoutes };

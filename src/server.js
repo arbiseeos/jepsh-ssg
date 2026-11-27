@@ -1,77 +1,161 @@
-import http from "http";
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import http from "node:http";
+import path from "node:path";
+import { formatBasePath, getMimeType, logError, logInfo } from "./utils.js";
 
-import { getMimeType, logInfo, logError } from "./utils.js";
+const HOST = "127.0.0.1";
 
-function startServer({ basePath, inputDir, port }) {
-  if (!fs.existsSync(inputDir) || !fs.existsSync(path.join(inputDir, "index.html"))) {
+function statSafe(filePath) {
+  try {
+    return fs.statSync(filePath);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Map a URL pathname onto a location inside `root`. Returns null if the
+ * pathname is malformed or would escape `root`.
+ */
+function resolveRequest(root, pathname) {
+  let decoded;
+
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+
+  if (decoded.includes("\0")) {
+    return null;
+  }
+
+  // Normalizing against "/" clamps any ".." segments at the root.
+  const relative = path.posix.normalize(`/${decoded.replace(/\\/g, "/")}`);
+  const target = path.join(root, relative);
+  if (target !== root && !target.startsWith(root + path.sep)) {
+    return null;
+  }
+
+  return target;
+}
+
+function sendText(res, status, body) {
+  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end(body);
+}
+
+/**
+ * Serve `inputDir` on 127.0.0.1 with SPA fallback to index.html.
+ * Pass port 0 to let the OS pick a free port.
+ *
+ * @returns {Promise<{ port: number, close: () => Promise<void> }>}
+ */
+export async function startServer({ basePath, inputDir, port }) {
+  const root = path.resolve(inputDir);
+  if (!fs.existsSync(path.join(root, "index.html"))) {
     throw new Error(`Input directory '${inputDir}' does not exist or is missing index.html`);
   }
 
-  const formattedBasePath = basePath && basePath !== "/" ? (basePath.startsWith("/") ? basePath : `/${basePath}`) : "";
-
+  const formattedBasePath = formatBasePath(basePath);
   const server = http.createServer((req, res) => {
-    let url = req.url || "/";
-    url = url.split("?")[0].split("#")[0];
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.setHeader("Allow", "GET, HEAD");
+      sendText(res, 405, "Method Not Allowed");
 
-    if (formattedBasePath && url.startsWith(formattedBasePath)) {
-      url = url.slice(formattedBasePath.length) || "/";
+      return;
     }
 
-    let filePath = path.join(inputDir, url === "/" ? "index.html" : url);
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+    let pathname = (req.url || "/").split("?")[0].split("#")[0] || "/";
+    if (formattedBasePath && (pathname === formattedBasePath || pathname.startsWith(`${formattedBasePath}/`))) {
+      pathname = pathname.slice(formattedBasePath.length) || "/";
+    }
+
+    const target = resolveRequest(root, pathname);
+    if (!target) {
+      sendText(res, 400, "Bad Request");
+
+      return;
+    }
+
+    let filePath = target;
+    let stats = statSafe(filePath);
+    if (stats?.isDirectory()) {
       filePath = path.join(filePath, "index.html");
+      stats = statSafe(filePath);
     }
 
-    if (!fs.existsSync(filePath) && !path.extname(filePath)) {
-      const htmlPath = filePath + ".html";
-      if (fs.existsSync(htmlPath)) filePath = htmlPath;
+    if (!stats && !path.extname(target)) {
+      const htmlPath = `${target}.html`;
+      const htmlStats = statSafe(htmlPath);
+      if (htmlStats) {
+        filePath = htmlPath;
+        stats = htmlStats;
+      }
     }
 
-    if (!fs.existsSync(filePath)) {
-      const indexPath = path.join(inputDir, "index.html");
-      if (fs.existsSync(indexPath) && !url.includes(".")) {
-        filePath = indexPath;
+    if (!stats && !path.extname(pathname)) {
+      filePath = path.join(root, "index.html");
+      stats = statSafe(filePath);
+    }
+
+    if (!stats || !stats.isFile()) {
+      sendText(res, 404, `Not found: '${pathname}'\nEnsure the file exists in '${inputDir}'`);
+
+      return;
+    }
+
+    const mimeType = getMimeType(filePath);
+    const lastModified = stats.mtime.toUTCString();
+
+    if (req.headers["if-modified-since"] === lastModified && !mimeType.startsWith("text/html")) {
+      res.writeHead(304);
+      res.end();
+
+      return;
+    }
+
+    res.writeHead(200, {
+      "Content-Type": mimeType,
+      "Content-Length": stats.size,
+      "Last-Modified": lastModified,
+      "Cache-Control": mimeType.startsWith("image/") || mimeType.includes("font") ? "public, max-age=31536000" : "no-cache",
+    });
+
+    if (req.method === "HEAD") {
+      res.end();
+
+      return;
+    }
+
+    const stream = fs.createReadStream(filePath);
+    stream.on("error", (error) => {
+      logError(`Server error for '${pathname}': ${error.message}`);
+      if (res.headersSent) {
+        res.destroy();
       } else {
-        res.writeHead(404, { "Content-Type": "text/plain" });
-        res.end(`Not found: '${url}'\nEnsure the file exists in '${inputDir}'`);
-        return;
+        sendText(res, 500, "Internal Server Error");
       }
-    }
+    });
 
-    try {
-      const stats = fs.statSync(filePath);
-      const mimeType = getMimeType(filePath);
-      const lastModified = stats.mtime.toUTCString();
-
-      if (req.headers["if-modified-since"] === lastModified && !mimeType.startsWith("text/html")) {
-        res.writeHead(304, {});
-        res.end();
-        return;
-      }
-
-      res.writeHead(200, {
-        "Content-Type": mimeType,
-        "Content-Length": stats.size,
-        "Last-Modified": lastModified,
-        "Cache-Control": mimeType.startsWith("image/") || mimeType.includes("font") ? "public, max-age=31536000" : "no-cache",
-      });
-
-      fs.createReadStream(filePath).pipe(res);
-    } catch (error) {
-      logError(`Server error for '${url}:' ${error.message}`);
-      res.writeHead(500, { "Content-Type": "text/plain" });
-      res.end("Internal Server Error");
-    }
+    stream.pipe(res);
   });
 
-  return new Promise((resolve) => {
-    server.listen(port, () => {
-      logInfo(`Serving ${inputDir} at http://localhost:${port}${formattedBasePath}`);
-      resolve(() => server.close());
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, HOST, () => {
+      server.off("error", reject);
+      const address = server.address();
+      const actualPort = address && typeof address === "object" ? address.port : port;
+      logInfo(`Serving ${inputDir} at http://${HOST}:${actualPort}${formattedBasePath}`);
+      resolve({
+        port: actualPort,
+        close: () =>
+          new Promise((done) => {
+            server.close(() => done());
+            server.closeAllConnections();
+          }),
+      });
     });
   });
 }
-
-export { startServer };

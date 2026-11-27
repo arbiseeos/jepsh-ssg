@@ -1,51 +1,60 @@
-import { mkdir, writeFile } from "fs/promises";
-import fs from "fs";
-import path from "path";
-
+import fs from "node:fs";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import chalk from "chalk";
 import ora from "ora";
 
-const getMimeType = (filePath) => {
-  const ext = path.extname(filePath).toLowerCase();
-  const mimeTypes = {
-    ".html": "text/html",
-    ".js": "text/javascript",
-    ".css": "text/css",
-    ".json": "application/json",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".svg": "image/svg+xml",
-    ".ico": "image/x-icon",
-    ".woff": "font/woff",
-    ".woff2": "font/woff2",
-    ".ttf": "font/ttf",
-    ".eot": "application/vnd.ms-fontobject",
-  };
-
-  return mimeTypes[ext] || "application/octet-stream";
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".eot": "application/vnd.ms-fontobject",
+  ".wasm": "application/wasm",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mp3": "audio/mpeg",
+  ".pdf": "application/pdf",
 };
 
-const createSpinner = (text) => {
-  return ora({
-    text: `${logStamp()} ${logLabel("info")} ${text}\n`,
-    spinner: "dots",
-    color: "cyan",
-  }).start();
-};
+export function getMimeType(filePath) {
+  return MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+}
 
-const logToFile = async (message) => {
-  const logDir = path.join(".jepsh/debug", "logs");
-  await mkdir(logDir, { recursive: true });
+export function formatBasePath(basePath) {
+  if (!basePath || basePath === "/") {
+    return "";
+  }
 
-  const logFile = fs.createWriteStream(path.join(logDir, "ssg.log"), {
-    flags: "a",
-  });
-  if (logFile) logFile.write(`${logStamp()} ${message.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-OR-Zcf-nqry=><]/g, "")}\n`);
-};
+  const withLeadingSlash = basePath.startsWith("/") ? basePath : `/${basePath}`;
 
-const logLabel = (label) => {
+  return withLeadingSlash.replace(/\/+$/, "");
+}
+
+export function logStamp() {
+  return `[${new Date().toLocaleTimeString()}]`;
+}
+
+export function logLabel(label) {
   switch (label) {
     case "info":
       return `${chalk.bgCyan.bold(" INFO ")}   `;
@@ -56,14 +65,27 @@ const logLabel = (label) => {
     case "error":
       return `${chalk.bgRed.bold(" ERROR ")}  `;
   }
-};
+}
 
-const logStamp = () => {
-  const timestamp = new Date().toLocaleTimeString();
-  return `[${timestamp}]`;
-};
+export function createSpinner(text) {
+  return ora({
+    text: `${logStamp()} ${logLabel("info")} ${text}\n`,
+    spinner: "dots",
+    color: "cyan",
+  }).start();
+}
 
-const logHeader = () => {
+async function logToFile(message) {
+  try {
+    const logDir = path.join(".jepsh/debug", "logs");
+    await mkdir(logDir, { recursive: true });
+    await appendFile(path.join(logDir, "ssg.log"), `${logStamp()} ${stripVTControlCharacters(message)}\n`);
+  } catch {
+    // Logging to disk must never break a build.
+  }
+}
+
+export function logHeader() {
   const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
   const content = `
   ███████╗███████╗██████╗ ███████╗██╗  ██╗
@@ -76,9 +98,9 @@ const logHeader = () => {
 
   console.log(chalk.cyan.bold(content));
   logToFile(`${logLabel("info")} Jepsh SSG started ...`);
-};
+}
 
-const logConfig = (config) => {
+export function logConfig(config) {
   const routeCount = config.routes.length;
   const date = new Date().toLocaleString();
   const content = `${chalk.bold("• Configuration")}
@@ -90,40 +112,40 @@ const logConfig = (config) => {
   Started     : ${chalk.green.bold(`${date}`)}`;
 
   console.log(`\n${content}\n`);
-};
+}
 
-const logInfo = (message, ...args) => {
+export function logInfo(message, ...args) {
   const content = `${logLabel("info")} ${message}`;
   console.log(`+ ${logStamp()} ${content}`, ...args);
   logToFile(content);
-};
+}
 
-const logSuccess = (message, ...args) => {
+export function logSuccess(message, ...args) {
   const content = `${logLabel("success")} ${message}`;
   console.log(`+ ${logStamp()} ${content}`, ...args);
   logToFile(content);
-};
+}
 
-const logWarn = (message, ...args) => {
+export function logWarn(message, ...args) {
   const content = `${logLabel("warn")} ${message}`;
   console.log(`+ ${logStamp()} ${content}`, ...args);
   logToFile(content);
-};
+}
 
-const logError = (message, ...args) => {
+export function logError(message, ...args) {
   const content = `${logLabel("error")} ${message}`;
   console.log(`+ ${logStamp()} ${content}`, ...args);
   logToFile(content);
-};
+}
 
-const logSummary = (results, totalDuration) => {
+export function logSummary(results, totalDuration) {
   const successful = results.filter((r) => r.status === "success").length;
+  const skipped = results.filter((r) => r.status === "skipped").length;
   const failed = results.filter((r) => r.status === "failed").length;
   const total = results.length;
   const average = total > 0 ? (totalDuration / total / 1000).toFixed(2) : 0;
-
   const content = `${chalk.bold("• Reports")}
-  Successful  : ${chalk.green.bold(`${successful} route${successful !== 1 ? "s" : ""}`)}
+  Successful  : ${chalk.green.bold(`${successful} route${successful !== 1 ? "s" : ""}`)}${skipped > 0 ? `\n  Skipped     : ${chalk.yellow.bold(`${skipped} route${skipped !== 1 ? "s" : ""}`)}` : ""}
   Failed      : ${chalk.red.bold(`${failed} route${failed !== 1 ? "s" : ""}`)}
   Total       : ${chalk.bold(`${total} route${total !== 1 ? "s" : ""}`)}\n\n${chalk.bold("• Performance")}
   Duration    : ${chalk.cyan.bold(`${(totalDuration / 1000).toFixed(1)}s`)}
@@ -131,61 +153,48 @@ const logSummary = (results, totalDuration) => {
 
   console.log(`\n${content}\n`);
 
-  if (failed === 0) logSuccess(`All ${total} route(s) processed successfully`);
-  else logWarn(`${successful} route(s) processed successfully, ${failed} failed`);
-};
-
-const generateSitemap = async (routes, baseUrl, outDir, basePath) => {
-  const processedRoutes = [];
-  for (const route of routes) {
-    if (typeof route === "string") {
-      processedRoutes.push(route);
-    } else if (route.path && route.params) {
-      for (const paramSet of route.params) {
-        let dynamicRoute = route.path;
-        for (const [key, value] of Object.entries(paramSet)) dynamicRoute = dynamicRoute.replace(`:${key}`, value);
-        processedRoutes.push(dynamicRoute);
-      }
-    } else {
-      processedRoutes.push(route.path);
-    }
+  if (failed === 0) {
+    logSuccess(`All ${total} route(s) processed successfully`);
+  } else {
+    logWarn(`${successful} route(s) processed successfully, ${failed} failed`);
   }
+}
 
-  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${processedRoutes
-  .map(
-    (route) => `
-  <url>
-    <loc>${baseUrl}${basePath}${route}</loc>
-    <lastmod>${new Date().toISOString()}</lastmod>
-  </url>`
-  )
-  .join("\n")}
-</urlset>`;
+function escapeXml(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
 
+/**
+ * @param {string[]} routePaths Final, already-expanded route paths (e.g. "/", "/about").
+ */
+export async function generateSitemap(routePaths, baseUrl, outDir, basePath = "") {
+  const origin = baseUrl.replace(/\/+$/, "");
+  const lastmod = new Date().toISOString();
+  const urls = routePaths.map((route) => `  <url>\n    <loc>${escapeXml(encodeURI(`${origin}${basePath}${route}`))}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`).join("\n");
+  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+
+  await mkdir(outDir, { recursive: true });
   const sitemapPath = path.join(outDir, "sitemap.xml");
   await writeFile(sitemapPath, sitemap, "utf-8");
-  logSuccess(`Generated sitemap: '${sitemapPath}'`);
+
   return sitemapPath;
-};
+}
 
-const clearCache = async () => {
-  const cacheDir = path.join(process.cwd(), ".jepsh/caches", "ssg.json");
-  if (fs.existsSync(cacheDir)) {
-    await fs.promises.rm(cacheDir, { recursive: true, force: true });
+export async function clearCache() {
+  const cacheFile = path.join(process.cwd(), ".jepsh/caches", "ssg.json");
+  if (fs.existsSync(cacheFile)) {
+    await fs.promises.rm(cacheFile, { recursive: true, force: true });
   }
-};
+}
 
-const clearLogs = async () => {
-  const logsDir = path.join(process.cwd(), ".jepsh/debug/logs", "ssg.log");
+export async function clearLogs() {
+  const logFile = path.join(process.cwd(), ".jepsh/debug/logs", "ssg.log");
+  if (fs.existsSync(logFile)) {
+    await fs.promises.rm(logFile, { recursive: true, force: true });
+  }
+
   const screenshotsDir = path.join(process.cwd(), ".jepsh/debug/screenshots", "ssg");
-  if (fs.existsSync(logsDir)) {
-    await fs.promises.rm(logsDir, { recursive: true, force: true });
-  }
   if (fs.existsSync(screenshotsDir)) {
     await fs.promises.rm(screenshotsDir, { recursive: true, force: true });
   }
-};
-
-export { getMimeType, createSpinner, logLabel, logStamp, logHeader, logConfig, logInfo, logSuccess, logWarn, logError, logSummary, generateSitemap, clearCache, clearLogs };
+}

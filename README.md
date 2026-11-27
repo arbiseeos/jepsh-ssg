@@ -25,7 +25,7 @@ Static site generation transforms your dynamic single-page applications into pre
 - **Debug Tools**: Comprehensive debugging with screenshots and detailed logs
 - **Flexible Configuration**: Multiple configuration methods with clear precedence
 - **Interactive CLI**: User-friendly prompts guide you through setup
-- **CSS Optimization**: Built-in CSS inlining with Critters for performance
+- **CSS Optimization**: Built-in critical-CSS inlining with [Beasties](https://github.com/danielroe/beasties) for performance
 
 ## Installation
 
@@ -54,6 +54,12 @@ pnpm add -g jepsh-ssg
 # or locally
 pnpm add -D jepsh-ssg
 ```
+
+## Requirements
+
+- **Node.js 22 or newer** (22, 24 and 26 are tested in CI; Node 20 reached end-of-life in April 2026)
+- A built single-page app (Vite, React, Vue, Svelte, JepshJS, or similar). **JepshSSG** crawls the built output, so it does not depend on your bundler.
+- Chrome. Puppeteer downloads a compatible one when you install the package. In containers or CI that cannot use Chrome's sandbox (for example running as root), pass `--disable-sandbox`.
 
 ## Quick Start
 
@@ -112,7 +118,7 @@ npx jepsh-ssg --hydrate --hydrate-bundle assets/js/main.js --sitemap --base-url 
 | `--base-url <url>`               | Base URL for sitemap generation (e.g., `https://example.com`) | `baseUrl`           |
 | `-i, --input-dir <path>`         | Input directory containing built files                        | `inputDir`          |
 | `-o, --out-dir <path>`           | Output directory for generated static files                   | `outDir`            |
-| `-p, --port <number>`            | Development server port (1-65535)                             | `port`              |
+| `-p, --port <number>`            | Local server port (0 picks a free port)                       | `port`              |
 | `--concurrency <number>`         | Number of concurrent crawling processes                       | `concurrency`       |
 | `--flat-output`                  | Generate `page.html` instead of `page/index.html`             | `flatOutput`        |
 | `--hydrate`                      | Enable client-side hydration (experimental)                   | `hydrate`           |
@@ -125,6 +131,8 @@ npx jepsh-ssg --hydrate --hydrate-bundle assets/js/main.js --sitemap --base-url 
 | `--sitemap`                      | Generate sitemap.xml (recommended for SEO)                    | `sitemap`           |
 | `--exclude-routes <routes>`      | Comma-separated routes to exclude from generation             | `excludeRoutes`     |
 | `--custom-selectors <selectors>` | Custom CSS selectors for content extraction                   | `customSelectors`   |
+| `--disable-sandbox`              | Launch Chrome without its sandbox (some containers and CI)    | `disableSandbox`    |
+| `--browser-args <args>`          | Comma-separated extra Chrome arguments                        | `browserArgs`       |
 | `--watch`                        | Watch for file changes and rebuild automatically              | -                   |
 | `--dry-run`                      | Preview routes without generating files                       | -                   |
 | `-V, --version`                  | Display version information                                   | -                   |
@@ -133,13 +141,15 @@ npx jepsh-ssg --hydrate --hydrate-bundle assets/js/main.js --sitemap --base-url 
 | `--clear-logs`                   | Clear logs in `.jepsh`                                        | -                   |
 | `--clean`                        | Clear all cache and logs in `.jepsh`                          | -                   |
 
-> **💡 Tip**: When using `--sitemap`, always specify `--base-url` for proper SEO. Without it, URLs will default to `https://localhost:3000`.
+> **💡 Tip**: When using `--sitemap`, always specify `--base-url` for proper SEO. Without it, URLs will default to `http://localhost:3000`.
 
 ---
 
 ### 2. Configuration File
 
 #### Using `jepsh.config.js` (Recommended)
+
+The file may also be named `jepsh.config.mjs` or `jepsh.config.cjs`. Use `export default` in an ESM project (`"type": "module"`) and `module.exports =` in a CommonJS one.
 
 ```javascript
 export default {
@@ -224,10 +234,12 @@ export default {
 | `batchSize`       | `number`                                       | Routes processed per batch                   | `50`                      | `--batch-size`       |
 | `incremental`     | `boolean`                                      | Enable incremental builds (experimental)     | `false`                   | `--incremental`      |
 | `timeout`         | `number`                                       | Timeout per route in milliseconds            | `30000`                   | `-t, --timeout`      |
-| `inlineCss`       | `boolean`                                      | Enable CSS inlining with Critters            | `false`                   | `--inline-css`       |
+| `inlineCss`       | `boolean`                                      | Enable critical-CSS inlining with Beasties   | `false`                   | `--inline-css`       |
 | `sitemap`         | `boolean`                                      | Generate sitemap.xml                         | `false`                   | `--sitemap`          |
 | `excludeRoutes`   | `string[]`                                     | Routes to exclude from generation            | `[]`                      | `--exclude-routes`   |
 | `customSelectors` | `string[]`                                     | Custom CSS selectors for content             | `[]`                      | `--custom-selectors` |
+| `disableSandbox`  | `boolean`                                      | Launch Chrome without its sandbox            | `false`                   | `--disable-sandbox`  |
+| `browserArgs`     | `string[]`                                     | Extra Chrome launch arguments                | `[]`                      | `--browser-args`     |
 
 > **⚠️ Note**: CLI flags always override configuration file settings. Features like `--watch` and `--dry-run` are CLI-only but can be combined with file configuration.
 
@@ -355,19 +367,36 @@ Perfect for development workflows where you want to see static generation result
 Add client-side interactivity to your static pages:
 
 ```bash
-npx jepsh-ssg --hydrate --hydrate-bundle assets/js/app.js
+npx jepsh-ssg --hydrate
+# or point at a specific bundle (relative to the input directory)
+npx jepsh-ssg --hydrate --hydrate-bundle assets/index.js
 ```
 
 **How hydration works:**
 
-1. Generates static HTML for fast initial load
-2. Injects specified JavaScript bundle
-3. Re-hydrates components for full interactivity
-4. Maintains SEO benefits with dynamic functionality
+1. Each route is rendered in headless Chrome and its HTML is saved
+2. The saved HTML already contains your app's own `<script>` tag, so nothing is added when the bundle is already referenced. Otherwise the bundle is added as `<script type="module">`
+3. In the browser your app starts and takes over the pre-rendered markup
+
+**Your app must hydrate instead of re-rendering.** If your entry point calls `createRoot(...).render(...)` it throws away the pre-rendered markup and renders from scratch (you'll see a flash and get no benefit). With React 18/19, use `hydrateRoot` when the container already has content:
+
+```jsx
+import { createRoot, hydrateRoot } from "react-dom/client";
+
+const container = document.getElementById("root");
+const app = <App />;
+
+if (container.hasChildNodes()) hydrateRoot(container, app);
+else createRoot(container).render(app);
+```
+
+Hydration only works if the first client render produces the same markup as the saved HTML. Avoid values that differ between render passes (`Date.now()`, `Math.random()`, `window`-dependent branches) during the initial render.
 
 ## Framework-Specific Examples
 
-### React with CRA
+### React with Create React App (legacy)
+
+> Create React App is deprecated by the React team. It still works as an input because **JepshSSG** only reads the `build/` output, but new projects should use Vite or a framework.
 
 ```bash
 # Build React app
@@ -411,7 +440,7 @@ npx jepsh-ssg --framework svelte --input-dir build --hydrate
 
 ### CSS Optimization
 
-**JepshSSG** uses [Critters](https://github.com/GoogleChromeLabs/critters) to inline critical CSS:
+**JepshSSG** uses [Beasties](https://github.com/danielroe/beasties) (the maintained fork of Critters) to inline critical CSS:
 
 - Automatically inlines above-the-fold CSS
 - Lazy-loads non-critical stylesheets
@@ -546,12 +575,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "24"
 
       - name: Install dependencies
         run: npm ci
@@ -560,7 +589,7 @@ jobs:
         run: npm run build
 
       - name: Generate static site
-        run: npx jepsh-ssg --sitemap --base-url https://mysite.com
+        run: npx jepsh-ssg --sitemap --base-url https://mysite.com --disable-sandbox
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
@@ -632,7 +661,7 @@ We welcome contributions! Here's how to get started:
 
 1. **Fork** the repository
 2. **Clone** your fork: `git clone https://github.com/yourusername/jepsh-ssg.git`
-3. **Install** dependencies: `npm install`
+3. **Install** dependencies: `npm install` (Node 22+)
 4. **Create** a feature branch: `git checkout -b feature/amazing-feature`
 5. **Make** your changes and add tests
 6. **Test** your changes: `npm test`
@@ -665,6 +694,7 @@ We use ESLint and Prettier for code formatting. Before submitting:
 npm run lint      # Check code style
 npm run lint:fix  # Auto-fix issues
 npm run format    # Format code
+npm test          # Unit tests + end-to-end crawl in headless Chrome
 ```
 
 Please read our [Contributing Guidelines](https://github.com/jepsh/.github/blob/main/CONTRIBUTING.md) for detailed information about our development process, issue reporting, and pull request procedures.
