@@ -26,19 +26,29 @@ Static site generation transforms your dynamic single-page applications into pre
 - **Flexible Configuration**: Multiple configuration methods with clear precedence
 - **Interactive CLI**: User-friendly prompts guide you through setup
 - **CSS Optimization**: Built-in critical-CSS inlining with [Beasties](https://github.com/danielroe/beasties) for performance
+- **TypeScript**: Written in TypeScript and ships its own type definitions
 
 ## Installation
+
+The package is published to **GitHub Packages** as `@arbiseeos/jepsh-ssg`. GitHub Packages requires authentication even for public packages, so add the registry and a token with the `read:packages` scope to your `.npmrc` first:
+
+```ini
+@arbiseeos:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+`GITHUB_TOKEN` must be an environment variable holding a GitHub token with `read:packages` (a classic personal access token works for local installs). In GitHub Actions, `secrets.GITHUB_TOKEN` works when the job grants `packages: read`.
 
 ### Global Installation (Recommended)
 
 ```bash
-npm install -g jepsh-ssg
+npm install -g @arbiseeos/jepsh-ssg
 ```
 
 ### Local Installation
 
 ```bash
-npm install jepsh-ssg --save-dev
+npm install @arbiseeos/jepsh-ssg --save-dev
 npx jepsh-ssg
 ```
 
@@ -46,13 +56,13 @@ npx jepsh-ssg
 
 ```bash
 # Using Yarn
-yarn global add jepsh-ssg
+yarn global add @arbiseeos/jepsh-ssg
 # or locally
-yarn add -D jepsh-ssg
+yarn add -D @arbiseeos/jepsh-ssg
 # Using pnpm
-pnpm add -g jepsh-ssg
+pnpm add -g @arbiseeos/jepsh-ssg
 # or locally
-pnpm add -D jepsh-ssg
+pnpm add -D @arbiseeos/jepsh-ssg
 ```
 
 ## Requirements
@@ -216,11 +226,35 @@ export default {
 };
 ```
 
+Every entry in `params` is one complete set of values: each placeholder in `path` must be present, and keys the path does not contain are rejected. To crawl every combination, pass an object of value arrays instead. The product is expanded in the order the placeholders appear in the path:
+
+```javascript
+export default {
+  ssg: {
+    routes: [
+      // 3 URLs: /en/our-products, /es/our-products, /ar/our-products
+      { path: "/:lang/our-products", params: { lang: ["en", "es", "ar"] } },
+      // 4 URLs: every category combined with every slug
+      { path: "/blog/:category/:slug", params: { category: ["tech", "design"], slug: ["a", "b"] } },
+    ],
+  },
+};
+```
+
+A placeholder is never crawled literally. `/:lang/our-products` without `params` is a configuration error, and so is the plain string `"/:lang/our-products"` or a parameter that does not appear in the path. Values are also rejected when they are empty or contain `/`, `?` or `#`.
+
+The same expansion is available on the command line, where each bracketed group contributes values and several groups form the cartesian product:
+
+```bash
+npx jepsh-ssg --routes "/:lang[en,es,ar]/our-products"
+npx jepsh-ssg --routes "/blog/:category[tech,design]/:slug[a,b]"   # 4 URLs
+```
+
 #### Complete Configuration Reference
 
 | Field             | Type                                           | Description                                  | Default                   | CLI Flag             |
 | ----------------- | ---------------------------------------------- | -------------------------------------------- | ------------------------- | -------------------- |
-| `routes`          | `string[]` \| `object[]`                       | Routes to crawl or 'auto' for detection      | `['/']`                   | `--routes`           |
+| `routes`          | `string[]` \| `object[]` \| `'auto'`           | Routes to crawl or 'auto' for detection      | `['/']`                   | `--routes`           |
 | `basePath`        | `string`                                       | Base path prefix for routes                  | `''`                      | `--base-path`        |
 | `baseUrl`         | `string`                                       | Base URL for sitemap and canonical URLs      | `'http://localhost:3000'` | `--base-url`         |
 | `inputDir`        | `string`                                       | Directory containing built application files | `'build'`                 | `-i, --input-dir`    |
@@ -317,7 +351,7 @@ npx jepsh-ssg --incremental
 - Skips unchanged routes on subsequent builds
 - Automatically handles dependency changes
 
-> **⚠️ Experimental**: This feature is under active development. Please report issues on our [GitHub repository](https://github.com/jepsh/jepsh-ssg/issues).
+> **⚠️ Experimental**: This feature is under active development. Please report issues on our [GitHub repository](https://github.com/arbiseeos/jepsh-ssg/issues).
 
 ### 3. Debug and Development Tools
 
@@ -673,31 +707,44 @@ We welcome contributions! Here's how to get started:
 
 ```bash
 # Clone the repository
-git clone https://github.com/jepsh/jepsh-ssg.git
+git clone https://github.com/arbiseeos/jepsh-ssg.git
 cd jepsh-ssg
 
 # Install dependencies
 npm install
 
-# Run tests
+# Typecheck, lint and test
+npm run typecheck
+npm run lint
 npm test
 
-# Run in development mode
+# Build the published output in dist/
+npm run build
+
+# Run in development mode (TypeScript, no build step)
 npm run dev
+
+# Add a changeset for user-facing changes
+npm run changeset
 ```
+
+### Releases
+
+Releases are managed with [Changesets](https://github.com/changesets/changesets). Add a changeset for every user-facing change; the release workflow opens a version PR and publishes to GitHub Packages when it is merged. The published package lives in `dist/`, so run `npm run build` before packing.
 
 ### Code Style
 
-We use ESLint and Prettier for code formatting. Before submitting:
+We use ESLint, Prettier and the TypeScript compiler. Before submitting:
 
 ```bash
+npm run typecheck # TypeScript, no emit
 npm run lint      # Check code style
 npm run lint:fix  # Auto-fix issues
 npm run format    # Format code
 npm test          # Unit tests + end-to-end crawl in headless Chrome
 ```
 
-Please read our [Contributing Guidelines](https://github.com/jepsh/.github/blob/main/CONTRIBUTING.md) for detailed information about our development process, issue reporting, and pull request procedures.
+Please read our [Contributing Guidelines](https://github.com/arbiseeos/.github/blob/main/CONTRIBUTING.md) for detailed information about our development process, issue reporting, and pull request procedures.
 
 ## License
 
@@ -706,10 +753,10 @@ Please read our [Contributing Guidelines](https://github.com/jepsh/.github/blob/
 ## Support
 
 - **Documentation**: [**JepshSSG** Docs](https://jepsh.github.io/jepsh-ssg)
-- **Bug Reports**: [GitHub Issues](https://github.com/jepsh/jepsh-ssg/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/jepsh/jepsh-ssg/discussions)
-- **Feature Requests**: [GitHub Issues](https://github.com/jepsh/jepsh-ssg/issues/new?template=feature_request.md)
+- **Bug Reports**: [GitHub Issues](https://github.com/arbiseeos/jepsh-ssg/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/arbiseeos/jepsh-ssg/discussions)
+- **Feature Requests**: [GitHub Issues](https://github.com/arbiseeos/jepsh-ssg/issues/new?template=feature_request.md)
 
 ---
 
-[⭐ Star us on GitHub](https://github.com/jepsh/jepsh-ssg) if you find **JepshSSG** helpful!
+[⭐ Star us on GitHub](https://github.com/arbiseeos/jepsh-ssg) if you find **JepshSSG** helpful!

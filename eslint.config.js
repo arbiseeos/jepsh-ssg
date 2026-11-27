@@ -1,10 +1,12 @@
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier";
 import globals from "globals";
+import tseslint from "typescript-eslint";
 
-export default [
-  { ignores: ["node_modules/", "coverage/", "tests/fixtures/", ".jepsh/"] },
+export default tseslint.config(
+  { ignores: ["node_modules/", "coverage/", "dist/", "tests/fixtures/", ".jepsh/"] },
   js.configs.recommended,
+  ...tseslint.configs.recommended,
   {
     languageOptions: {
       ecmaVersion: "latest",
@@ -12,12 +14,12 @@ export default [
       globals: { ...globals.node },
     },
     rules: {
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
     },
   },
   {
-    files: ["src/crawler.js"],
+    files: ["src/crawler.ts"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
-  prettier,
-];
+  prettier
+);

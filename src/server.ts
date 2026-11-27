@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import type { ServerHandle } from "./types.js";
 import { formatBasePath, getMimeType, logError, logInfo } from "./utils.js";
 
 const HOST = "127.0.0.1";
 
-function statSafe(filePath) {
+function statSafe(filePath: string): fs.Stats | null {
   try {
     return fs.statSync(filePath);
   } catch {
@@ -17,8 +18,8 @@ function statSafe(filePath) {
  * Map a URL pathname onto a location inside `root`. Returns null if the
  * pathname is malformed or would escape `root`.
  */
-function resolveRequest(root, pathname) {
-  let decoded;
+function resolveRequest(root: string, pathname: string): string | null {
+  let decoded: string;
 
   try {
     decoded = decodeURIComponent(pathname);
@@ -40,18 +41,22 @@ function resolveRequest(root, pathname) {
   return target;
 }
 
-function sendText(res, status, body) {
+function sendText(res: http.ServerResponse, status: number, body: string): void {
   res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
   res.end(body);
 }
 
+export type StartServerOptions = {
+  basePath?: string;
+  inputDir: string;
+  port: number;
+};
+
 /**
  * Serve `inputDir` on 127.0.0.1 with SPA fallback to index.html.
  * Pass port 0 to let the OS pick a free port.
- *
- * @returns {Promise<{ port: number, close: () => Promise<void> }>}
  */
-export async function startServer({ basePath, inputDir, port }) {
+export async function startServer({ basePath, inputDir, port }: StartServerOptions): Promise<ServerHandle> {
   const root = path.resolve(inputDir);
   if (!fs.existsSync(path.join(root, "index.html"))) {
     throw new Error(`Input directory '${inputDir}' does not exist or is missing index.html`);
@@ -66,7 +71,7 @@ export async function startServer({ basePath, inputDir, port }) {
       return;
     }
 
-    let pathname = (req.url || "/").split("?")[0].split("#")[0] || "/";
+    let pathname = (req.url ?? "/").split("?")[0]?.split("#")[0] || "/";
     if (formattedBasePath && (pathname === formattedBasePath || pathname.startsWith(`${formattedBasePath}/`))) {
       pathname = pathname.slice(formattedBasePath.length) || "/";
     }
@@ -141,7 +146,7 @@ export async function startServer({ basePath, inputDir, port }) {
     stream.pipe(res);
   });
 
-  return new Promise((resolve, reject) => {
+  return new Promise<ServerHandle>((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, HOST, () => {
       server.off("error", reject);
@@ -151,7 +156,7 @@ export async function startServer({ basePath, inputDir, port }) {
       resolve({
         port: actualPort,
         close: () =>
-          new Promise((done) => {
+          new Promise<void>((done) => {
             server.close(() => done());
             server.closeAllConnections();
           }),
