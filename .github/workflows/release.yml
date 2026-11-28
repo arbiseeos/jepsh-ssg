@@ -10,6 +10,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write
   id-token: write
 
 jobs:
@@ -30,7 +31,6 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
-          permission-packages: write
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -66,4 +66,4 @@ jobs:
           create-github-releases: true
           push-git-tags: true
         env:
-          NODE_AUTH_TOKEN: ${{ steps.release-bot-token.outputs.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
