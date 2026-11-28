@@ -1,10 +1,8 @@
-# **JepshSSG** - Static Site Generator
+# JepshSSG - Static Site Generator
 
-**JepshSSG** is a powerful static site generator that crawls modern web applications ([**JepshJS**](https://github.com/jepsh/jepsh), **React**, **Vue**, **Svelte**) and generates static HTML files for improved performance and SEO. It supports dynamic routes, sitemap generation, incremental builds, and provides a sleek CLI experience with interactive configuration.
+JepshSSG is a powerful static site generator that crawls modern web applications (**React**, **Vue**, **Svelte**) and generates static HTML files for improved performance and SEO. It supports dynamic routes, sitemap generation, incremental builds, and provides a sleek CLI experience with interactive configuration.
 
-> This is a built-in tool for the [**JepshJS**](https://github.com/jepsh/jepsh) web framework.
-
-## Why **JepshSSG**?
+## Why JepshSSG?
 
 Static site generation transforms your dynamic single-page applications into pre-rendered HTML files, providing numerous benefits:
 
@@ -68,7 +66,7 @@ pnpm add -D @arbiseeos/jepsh-ssg
 ## Requirements
 
 - **Node.js 22 or newer** (22, 24 and 26 are tested in CI; Node 20 reached end-of-life in April 2026)
-- A built single-page app (Vite, React, Vue, Svelte, JepshJS, or similar). **JepshSSG** crawls the built output, so it does not depend on your bundler.
+- A built single-page app (Vite, React, Vue, Svelte, JepshJS, or similar). JepshSSG crawls the built output, so it does not depend on your bundler.
 - Chrome. Puppeteer downloads a compatible one when you install the package. In containers or CI that cannot use Chrome's sandbox (for example running as root), pass `--disable-sandbox`.
 
 ## Quick Start
@@ -97,7 +95,7 @@ netlify deploy --prod --dir=build-ssg
 
 ## Configuration
 
-**JepshSSG** offers flexible configuration with the following precedence order:
+JepshSSG offers flexible configuration with the following precedence order:
 
 1. **CLI Flags** (highest priority)
 2. **Configuration File** (`jepsh.config.js` or `package.json`)
@@ -281,7 +279,7 @@ npx jepsh-ssg --routes "/blog/:category[tech,design]/:slug[a,b]"   # 4 URLs
 
 ### 3. Interactive Configuration
 
-When no configuration is detected, **JepshSSG** launches an interactive setup wizard:
+When no configuration is detected, JepshSSG launches an interactive setup wizard:
 
 ```bash
 npx jepsh-ssg
@@ -303,7 +301,7 @@ The wizard saves your preferences and generates a configuration file for future 
 
 ### 1. Sitemap Generation
 
-**JepshSSG** automatically generates SEO-optimized sitemaps with proper lastmod timestamps and canonical URLs.
+JepshSSG automatically generates SEO-optimized sitemaps with proper lastmod timestamps and canonical URLs.
 
 **Enable sitemap generation:**
 
@@ -336,7 +334,7 @@ npx jepsh-ssg --sitemap --base-url https://mysite.com
 
 ### 2. Incremental Builds
 
-Dramatically reduce build times by only regenerating changed routes. **JepshSSG** maintains a cache of file hashes to detect changes.
+Dramatically reduce build times by only regenerating changed routes. JepshSSG maintains a cache of file hashes to detect changes.
 
 **Enable incremental builds:**
 
@@ -355,7 +353,7 @@ npx jepsh-ssg --incremental
 
 ### 3. Debug and Development Tools
 
-**JepshSSG** provides comprehensive debugging capabilities for troubleshooting generation issues.
+JepshSSG provides comprehensive debugging capabilities for troubleshooting generation issues.
 
 **Debug folder structure:**
 
@@ -430,7 +428,7 @@ Hydration only works if the first client render produces the same markup as the 
 
 ### React with Create React App (legacy)
 
-> Create React App is deprecated by the React team. It still works as an input because **JepshSSG** only reads the `build/` output, but new projects should use Vite or a framework.
+> Create React App is deprecated by the React team. It still works as an input because JepshSSG only reads the `build/` output, but new projects should use Vite or a framework.
 
 ```bash
 # Build React app
@@ -474,7 +472,7 @@ npx jepsh-ssg --framework svelte --input-dir build --hydrate
 
 ### CSS Optimization
 
-**JepshSSG** uses [Beasties](https://github.com/danielroe/beasties) (the maintained fork of Critters) to inline critical CSS:
+JepshSSG uses [Beasties](https://github.com/danielroe/beasties) (the maintained fork of Critters) to inline critical CSS:
 
 - Automatically inlines above-the-fold CSS
 - Lazy-loads non-critical stylesheets
@@ -501,7 +499,7 @@ NODE_OPTIONS="--max-old-space-size=4096" npx jepsh-ssg
 
 ## Logging and Reporting
 
-**JepshSSG** provides detailed logging and comprehensive reports:
+JepshSSG provides detailed logging and comprehensive reports:
 
 ```
   ███████╗███████╗██████╗ ███████╗██╗  ██╗
@@ -752,11 +750,11 @@ Please read our [Contributing Guidelines](https://github.com/arbiseeos/.github/b
 
 ## Support
 
-- **Documentation**: [**JepshSSG** Docs](https://jepsh.github.io/jepsh-ssg)
+- **Documentation**: [JepshSSG Docs](https://jepsh.github.io/jepsh-ssg)
 - **Bug Reports**: [GitHub Issues](https://github.com/arbiseeos/jepsh-ssg/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/arbiseeos/jepsh-ssg/discussions)
 - **Feature Requests**: [GitHub Issues](https://github.com/arbiseeos/jepsh-ssg/issues/new?template=feature_request.md)
 
 ---
 
-[⭐ Star us on GitHub](https://github.com/arbiseeos/jepsh-ssg) if you find **JepshSSG** helpful!
+[⭐ Star us on GitHub](https://github.com/arbiseeos/jepsh-ssg) if you find JepshSSG helpful!
