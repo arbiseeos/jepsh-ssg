@@ -252,7 +252,12 @@ export async function crawlRoutes({
               const routeSpinner = createSpinner(`Crawling: '${fullUrl}' ...`);
 
               try {
-                await page.goto(fullUrl, routeTimeout === undefined ? { waitUntil: "networkidle0" } : { waitUntil: "networkidle0", timeout: routeTimeout });
+                // Wait for the document, not network idleness: apps may keep background requests open.
+                // Framework-specific selectors below determine when the rendered app is ready to capture.
+                await page.goto(fullUrl, {
+                  waitUntil: "domcontentloaded",
+                  ...(routeTimeout !== undefined ? { timeout: routeTimeout } : {}),
+                });
                 let contentFound = false;
 
                 for (const selector of selectors) {
