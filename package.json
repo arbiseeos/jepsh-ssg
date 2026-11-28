@@ -61,7 +61,7 @@
     "test": "node --enable-source-maps --import tsx --test \"tests/**/*.test.ts\"",
     "test:coverage": "node --enable-source-maps --import tsx --test --experimental-test-coverage --test-coverage-exclude=\"tests/**\" --test-coverage-exclude=\"dist/**\" --test-coverage-exclude=\"src/types.ts\" --test-coverage-exclude=\"src/index.ts\" --test-coverage-exclude=\"**/tmp/**\" --test-coverage-lines=96 --test-coverage-branches=92 --test-coverage-functions=94 \"tests/**/*.test.ts\"",
     "changeset": "changeset",
-    "version": "changeset version",
+    "version": "changeset version && npm install --package-lock-only --ignore-scripts",
     "release": "npm run build && changeset publish",
     "prepublishOnly": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build"
   },
