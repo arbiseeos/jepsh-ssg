@@ -1,10 +1,11 @@
+import type { CliOptions, ConfigOverrides, Framework } from "./types.js";
 import { parseRouteList } from "./routes.js";
 
-function toInt(value) {
+function toInt(value: string): number {
   return Number.parseInt(value, 10);
 }
 
-function toList(value) {
+function toList(value: string): string[] {
   return value
     .split(",")
     .map((item) => item.trim())
@@ -15,8 +16,8 @@ function toList(value) {
  * Translate parsed CLI flags into config overrides. Only flags that were
  * actually passed are included, so config-file values are never clobbered.
  */
-export function buildOverrides(options) {
-  const overrides = {};
+export function buildOverrides(options: CliOptions): ConfigOverrides {
+  const overrides: ConfigOverrides = {};
 
   if (options.routes) overrides.routes = options.routes.trim() === "auto" ? "auto" : parseRouteList(options.routes);
   if (options.basePath !== undefined) overrides.basePath = options.basePath;
@@ -28,7 +29,7 @@ export function buildOverrides(options) {
   if (options.flatOutput) overrides.flatOutput = true;
   if (options.hydrate) overrides.hydrate = true;
   if (options.hydrateBundle) overrides.hydrateBundle = options.hydrateBundle;
-  if (options.framework) overrides.framework = options.framework;
+  if (options.framework) overrides.framework = options.framework as Framework;
   if (options.batchSize) overrides.batchSize = toInt(options.batchSize);
   if (options.incremental) overrides.incremental = true;
   if (options.timeout) overrides.timeout = toInt(options.timeout);

@@ -33,6 +33,13 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
-      # Runs the unit tests and the end-to-end crawl in headless Chrome.
-      - name: Test
-        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # Runs the unit tests, the end-to-end crawl in headless Chrome, and
+      # enforces the coverage thresholds.
+      - name: Test with coverage
+        run: npm run test:coverage

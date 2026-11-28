@@ -1,5 +1,5 @@
 {
-  "name": "jepsh-ssg",
+  "name": "@arbiseeos/jepsh-ssg",
   "description": "A static site generator for modern web frameworks with route crawling and hydration support",
   "version": "2.0.0",
   "license": "Apache-2.0",
@@ -17,19 +17,28 @@
     "svelte",
     "hydration",
     "puppeteer",
-    "cli"
+    "cli",
+    "typescript"
   ],
   "type": "module",
-  "main": "src/index.js",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
   "bin": {
-    "jepsh-ssg": "bin/cli.js"
+    "jepsh-ssg": "dist/bin/cli.js"
   },
   "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
     "access": "public"
   },
   "files": [
-    "bin",
-    "src",
+    "dist/bin",
+    "dist/src",
     "LICENSE",
     "CHANGELOG.md",
     "README.md"
@@ -42,14 +51,19 @@
     "url": "https://github.com/arbiseeos/jepsh-ssg/issues"
   },
   "scripts": {
-    "dev": "node bin/cli.js",
+    "dev": "tsx bin/cli.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write \"{bin,src,tests}/**/*.js\" eslint.config.js",
-    "format:check": "prettier --check \"{bin,src,tests}/**/*.js\" eslint.config.js",
-    "test": "node --test \"tests/**/*.test.js\"",
-    "test:coverage": "c8 --reporter=text --reporter=html node --test \"tests/**/*.test.js\"",
-    "prepublishOnly": "npm run lint && npm run format:check && npm test"
+    "format": "prettier --write \"{bin,src,tests}/**/*.ts\" eslint.config.js",
+    "format:check": "prettier --check \"{bin,src,tests}/**/*.ts\" eslint.config.js",
+    "test": "node --enable-source-maps --import tsx --test \"tests/**/*.test.ts\"",
+    "test:coverage": "node --enable-source-maps --import tsx --test --experimental-test-coverage --test-coverage-exclude=\"tests/**\" --test-coverage-exclude=\"dist/**\" --test-coverage-exclude=\"src/types.ts\" --test-coverage-exclude=\"src/index.ts\" --test-coverage-exclude=\"**/tmp/**\" --test-coverage-lines=96 --test-coverage-branches=92 --test-coverage-functions=94 \"tests/**/*.test.ts\"",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "npm run build && changeset publish",
+    "prepublishOnly": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "beasties": "^0.5.4",
@@ -63,12 +77,16 @@
     "puppeteer": "^25.0.0"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "@eslint/js": "^10.0.0",
-    "c8": "^10.1.2",
+    "@types/node": "^26.6.11",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.5",
     "globals": "^16.0.0",
-    "prettier": "^3.5.3"
+    "prettier": "^3.5.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.74.0"
   },
   "engines": {
     "node": ">=22"
