@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 export const PROJECT_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const FIXTURE_DIR = path.join(PROJECT_ROOT, "tests", "fixtures", "spa");
 
-export const makeTempDir = (): string => mkdtempSync(path.join(tmpdir(), "jepsh-ssg-"));
+export const makeTempDir = (): string => mkdtempSync(path.join(tmpdir(), "sssg-"));
 
 /** Copy the fixture "build output" into `parent/dist` and return that path. */
 export function copyFixture(parent: string): string {

@@ -28,7 +28,7 @@ Static site generation transforms your dynamic single-page applications into pre
 
 ## Installation
 
-The package is published to **GitHub Packages** as `@arbiseeos/jepsh-ssg`. GitHub Packages requires authentication even for public packages, so add the registry and a token with the `read:packages` scope to your `.npmrc` first:
+The package is published to **GitHub Packages** as `@arbiseeos/sssg`. GitHub Packages requires authentication even for public packages, so add the registry and a token with the `read:packages` scope to your `.npmrc` first:
 
 ```ini
 @arbiseeos:registry=https://npm.pkg.github.com
@@ -40,27 +40,27 @@ The package is published to **GitHub Packages** as `@arbiseeos/jepsh-ssg`. GitHu
 ### Global Installation (Recommended)
 
 ```bash
-npm install -g @arbiseeos/jepsh-ssg
+npm install -g @arbiseeos/sssg
 ```
 
 ### Local Installation
 
 ```bash
-npm install @arbiseeos/jepsh-ssg --save-dev
-npx jepsh-ssg
+npm install @arbiseeos/sssg --save-dev
+npx sssg
 ```
 
 ### Using with Different Package Managers
 
 ```bash
 # Using Yarn
-yarn global add @arbiseeos/jepsh-ssg
+yarn global add @arbiseeos/sssg
 # or locally
-yarn add -D @arbiseeos/jepsh-ssg
+yarn add -D @arbiseeos/sssg
 # Using pnpm
-pnpm add -g @arbiseeos/jepsh-ssg
+pnpm add -g @arbiseeos/sssg
 # or locally
-pnpm add -D @arbiseeos/jepsh-ssg
+pnpm add -D @arbiseeos/sssg
 ```
 
 ## Requirements
@@ -75,7 +75,7 @@ pnpm add -D @arbiseeos/jepsh-ssg
 2. **Run JepshSSG** to generate static files:
 
 ```bash
-npx jepsh-ssg
+npx sssg
 ```
 
 3. **Deploy** the generated static files to any hosting platform
@@ -87,7 +87,7 @@ npx jepsh-ssg
 npm run build
 
 # Generate static site
-npx jepsh-ssg --routes /,/about,/contact --sitemap --base-url https://mysite.com
+npx sssg --routes /,/about,/contact --sitemap --base-url https://mysite.com
 
 # Deploy (example with Netlify)
 netlify deploy --prod --dir=build-ssg
@@ -108,13 +108,13 @@ JepshSSG offers flexible configuration with the following precedence order:
 **Basic Usage:**
 
 ```bash
-npx jepsh-ssg --routes /,/about --port 5000 --out-dir static
+npx sssg --routes /,/about --port 5000 --out-dir static
 ```
 
 **Advanced Usage with Hydration:**
 
 ```bash
-npx jepsh-ssg --hydrate --hydrate-bundle assets/js/main.js --sitemap --base-url https://example.com
+npx sssg --hydrate --hydrate-bundle assets/js/main.js --sitemap --base-url https://example.com
 ```
 
 **Complete Flag Reference:**
@@ -183,7 +183,7 @@ export default {
   "name": "my-app",
   "scripts": {
     "build": "vite build",
-    "ssg": "jepsh-ssg"
+    "ssg": "sssg"
   },
   "jepsh": {
     "ssg": {
@@ -282,8 +282,8 @@ Each path expands only the placeholders it contains, using the group's values. E
 The same expansion is available on the command line, where each bracketed group contributes values and several groups form the cartesian product:
 
 ```bash
-npx jepsh-ssg --routes "/:lang[en,es,ar]/our-products"
-npx jepsh-ssg --routes "/blog/:category[tech,design]/:slug[a,b]"   # 4 URLs
+npx sssg --routes "/:lang[en,es,ar]/our-products"
+npx sssg --routes "/blog/:category[tech,design]/:slug[a,b]"   # 4 URLs
 ```
 
 #### Complete Configuration Reference
@@ -320,7 +320,7 @@ npx jepsh-ssg --routes "/blog/:category[tech,design]/:slug[a,b]"   # 4 URLs
 When no configuration is detected, JepshSSG launches an interactive setup wizard:
 
 ```bash
-npx jepsh-ssg
+npx sssg
 
 ? Input directory (where your built files are located): dist
 ? Output directory (where static files will be saved): dist-ssg
@@ -344,7 +344,7 @@ JepshSSG automatically generates SEO-optimized sitemaps with proper lastmod time
 **Enable sitemap generation:**
 
 ```bash
-npx jepsh-ssg --sitemap --base-url https://mysite.com
+npx sssg --sitemap --base-url https://mysite.com
 ```
 
 **Generated `sitemap.xml` example:**
@@ -377,7 +377,7 @@ Dramatically reduce build times by only regenerating changed routes. JepshSSG ma
 **Enable incremental builds:**
 
 ```bash
-npx jepsh-ssg --incremental
+npx sssg --incremental
 ```
 
 **How it works:**
@@ -427,7 +427,7 @@ JepshSSG provides comprehensive debugging capabilities for troubleshooting gener
 Automatically rebuild when source files change during development:
 
 ```bash
-npx jepsh-ssg --watch
+npx sssg --watch
 ```
 
 Perfect for development workflows where you want to see static generation results in real-time.
@@ -437,9 +437,9 @@ Perfect for development workflows where you want to see static generation result
 Add client-side interactivity to your static pages:
 
 ```bash
-npx jepsh-ssg --hydrate
+npx sssg --hydrate
 # or point at a specific bundle (relative to the input directory)
-npx jepsh-ssg --hydrate --hydrate-bundle assets/index.js
+npx sssg --hydrate --hydrate-bundle assets/index.js
 ```
 
 **How hydration works:**
@@ -473,7 +473,7 @@ Hydration only works if the first client render produces the same markup as the 
 npm run build
 
 # Generate static site
-npx jepsh-ssg --framework react --input-dir build
+npx sssg --framework react --input-dir build
 ```
 
 ### React with Vite
@@ -483,7 +483,7 @@ npx jepsh-ssg --framework react --input-dir build
 npm run build
 
 # Generate static site
-npx jepsh-ssg --framework vite --input-dir dist --sitemap --base-url https://myapp.com
+npx sssg --framework vite --input-dir dist --sitemap --base-url https://myapp.com
 ```
 
 ### Vue with Nuxt
@@ -493,7 +493,7 @@ npx jepsh-ssg --framework vite --input-dir dist --sitemap --base-url https://mya
 npm run generate
 
 # Generate static site
-npx jepsh-ssg --framework vue --input-dir .output/public --routes auto
+npx sssg --framework vue --input-dir .output/public --routes auto
 ```
 
 ### Svelte with SvelteKit
@@ -503,7 +503,7 @@ npx jepsh-ssg --framework vue --input-dir .output/public --routes auto
 npm run build
 
 # Generate static site
-npx jepsh-ssg --framework svelte --input-dir build --hydrate
+npx sssg --framework svelte --input-dir build --hydrate
 ```
 
 ## Performance Optimization
@@ -523,7 +523,7 @@ Configure batch processing for optimal performance:
 
 ```bash
 # Process 20 routes at a time with 5 concurrent workers
-npx jepsh-ssg --batch-size 20 --concurrency 5
+npx sssg --batch-size 20 --concurrency 5
 ```
 
 ### Memory Management
@@ -532,7 +532,7 @@ For large sites, tune memory usage:
 
 ```bash
 # Increase Node.js memory limit
-NODE_OPTIONS="--max-old-space-size=4096" npx jepsh-ssg
+NODE_OPTIONS="--max-old-space-size=4096" npx sssg
 ```
 
 ## Logging and Reporting
@@ -593,28 +593,28 @@ JepshSSG provides detailed logging and comprehensive reports:
 
 ```bash
 # Enable debug mode and check auto-detection
-npx jepsh-ssg --routes auto --dry-run
+npx sssg --routes auto --dry-run
 ```
 
 **2. Build fails with timeout**
 
 ```bash
 # Increase timeout for complex pages
-npx jepsh-ssg --timeout 60000
+npx sssg --timeout 60000
 ```
 
 **3. Memory issues**
 
 ```bash
 # Reduce concurrency and batch size
-npx jepsh-ssg --concurrency 1 --batch-size 10
+npx sssg --concurrency 1 --batch-size 10
 ```
 
 **4. CSS not loading**
 
 ```bash
 # Enable CSS inlining if needed
-npx jepsh-ssg --inline-css
+npx sssg --inline-css
 ```
 
 ### Debug Information
@@ -659,7 +659,7 @@ jobs:
         run: npm run build
 
       - name: Generate static site
-        run: npx jepsh-ssg --sitemap --base-url https://mysite.com --disable-sandbox
+        run: npx sssg --sitemap --base-url https://mysite.com --disable-sandbox
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
@@ -674,7 +674,7 @@ Create `netlify.toml`:
 
 ```toml
 [build]
-  command = "npm run build && npx jepsh-ssg --sitemap --base-url https://mysite.netlify.app"
+  command = "npm run build && npx sssg --sitemap --base-url https://mysite.netlify.app"
   publish = "build-ssg"
 
 [build.environment]
@@ -693,7 +693,7 @@ Create `vercel.json`:
 
 ```json
 {
-  "buildCommand": "npm run build && npx jepsh-ssg --sitemap --base-url https://mysite.vercel.app",
+  "buildCommand": "npm run build && npx sssg --sitemap --base-url https://mysite.vercel.app",
   "outputDirectory": "build-ssg",
   "framework": null
 }
@@ -706,7 +706,7 @@ Create `vercel.json`:
 ```bash
 # Replace gatsby build with:
 npm run build  # Your normal build command
-npx jepsh-ssg --routes auto --sitemap --base-url https://yoursite.com
+npx sssg --routes auto --sitemap --base-url https://yoursite.com
 ```
 
 ### From Next.js Static Export
@@ -714,7 +714,7 @@ npx jepsh-ssg --routes auto --sitemap --base-url https://yoursite.com
 ```bash
 # Replace next export with:
 npm run build
-npx jepsh-ssg --framework react --routes auto --sitemap
+npx sssg --framework react --routes auto --sitemap
 ```
 
 ### From Nuxt Generate
@@ -722,7 +722,7 @@ npx jepsh-ssg --framework react --routes auto --sitemap
 ```bash
 # Replace nuxt generate with:
 npm run build
-npx jepsh-ssg --framework vue --input-dir .output/public --routes auto
+npx sssg --framework vue --input-dir .output/public --routes auto
 ```
 
 ## Contributing
