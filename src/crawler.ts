@@ -256,7 +256,7 @@ export async function crawlRoutes({
                 // Framework-specific selectors below determine when the rendered app is ready to capture.
                 await page.goto(fullUrl, {
                   waitUntil: "domcontentloaded",
-                  timeout: routeTimeout,
+                  ...(routeTimeout !== undefined ? { timeout: routeTimeout } : {}),
                 });
                 let contentFound = false;
 
