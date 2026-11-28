@@ -32,6 +32,7 @@ const runCli = (args: string[], cwd: string): Promise<RunResult> =>
 describe("createProgram", () => {
   it("parses every flag", () => {
     const program = createProgram();
+    assert.equal(program.name(), "sssg");
     program.parse([
       "node",
       "cli",
