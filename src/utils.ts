@@ -110,14 +110,28 @@ export function readPackageJson(): PackageJson {
   return cachedPackageJson;
 }
 
-async function logToFile(message: string): Promise<void> {
-  try {
-    const logDir = path.join(".jepsh/debug", "logs");
-    await mkdir(logDir, { recursive: true });
-    await appendFile(path.join(logDir, "ssg.log"), `${logStamp()} ${stripVTControlCharacters(message)}\n`);
-  } catch {
-    // Logging to disk must never break a build.
-  }
+/**
+ * Writes are queued on this promise so entries are appended in call order.
+ * Firing them off concurrently lets the kernel interleave the appends, which
+ * reorders (and can drop) log lines.
+ */
+let logQueue: Promise<void> = Promise.resolve();
+
+function logToFile(message: string): Promise<void> {
+  const entry = `${logStamp()} ${stripVTControlCharacters(message)}\n`;
+  // Resolve the path now: the queued write may run after the cwd has changed.
+  const logFile = path.join(process.cwd(), ".jepsh/debug/logs", "ssg.log");
+
+  logQueue = logQueue.then(async () => {
+    try {
+      await mkdir(path.dirname(logFile), { recursive: true });
+      await appendFile(logFile, entry);
+    } catch {
+      // Logging to disk must never break a build.
+    }
+  });
+
+  return logQueue;
 }
 
 export function logHeader(): void {
@@ -236,6 +250,8 @@ export async function clearCache(): Promise<void> {
 }
 
 export async function clearLogs(): Promise<void> {
+  await logQueue; // let queued writes finish so they cannot recreate the file
+
   const logFile = path.join(process.cwd(), ".jepsh/debug/logs", "ssg.log");
   if (fs.existsSync(logFile)) {
     await fs.promises.rm(logFile, { recursive: true, force: true });
