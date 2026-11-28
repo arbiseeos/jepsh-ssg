@@ -1,4 +1,4 @@
-import type { DynamicRoute, ResolvedRoute, RouteEntry, RouteParamGrid, RouteParamSet, RouteParamValue } from "./types.js";
+import type { DynamicRoute, ResolvedRoute, RouteEntry, RouteGroup, RouteParamGrid, RouteParamSet, RouteParamValue } from "./types.js";
 
 const CLI_PARAM_GROUP = /:(\w+)\[([^\]]*)\]/g;
 const PLACEHOLDER = /:(\w+)/g;
@@ -207,6 +207,68 @@ function expandParamGrid(routePath: string, params: RouteParamGrid, names: reado
   return sets.map((paramSet) => fillParams(routePath, paramSet, names));
 }
 
+/** True when an entry declares shared `params` and a list of `paths`. */
+export function isRouteGroup(entry: RouteEntry): entry is RouteGroup {
+  return typeof entry === "object" && entry !== null && Array.isArray((entry as RouteGroup).paths);
+}
+
+/**
+ * Expand a route group: its `params` domains are shared by every path, and a
+ * path expands only the placeholders it actually contains.
+ */
+export function expandRouteGroup(group: RouteGroup): string[] {
+  const params: unknown = group.params;
+
+  if (typeof params !== "object" || params === null || Array.isArray(params)) {
+    throw new Error("Route group params must be an object of value arrays");
+  }
+
+  const grid = params as RouteParamGrid;
+  const keys = Object.keys(grid);
+  if (keys.length === 0) {
+    throw new Error("Route group params must define at least one parameter");
+  }
+
+  for (const key of keys) {
+    const values = grid[key];
+    if (!Array.isArray(values) || values.length === 0) {
+      throw new Error(`Route group needs at least one value for ':${key}'`);
+    }
+  }
+
+  if (!Array.isArray(group.paths) || group.paths.length === 0) {
+    throw new Error("Route group paths must be a non-empty array of route paths");
+  }
+
+  const expanded: string[] = [];
+
+  group.paths.forEach((routePath: unknown, index) => {
+    if (typeof routePath !== "string" || routePath.trim() === "") {
+      throw new Error(`Route group paths[${index}] must be a route path string`);
+    }
+
+    const names = assertUniquePlaceholders(routePath);
+    if (names.length === 0) {
+      expanded.push(routePath);
+      return;
+    }
+
+    const pathGrid: Record<string, readonly RouteParamValue[]> = {};
+    for (const name of names) {
+      const values = grid[name];
+      if (values === undefined) {
+        throw missingParamsError(routePath, [name], ". Declare it in the route group's params");
+      }
+
+      pathGrid[name] = values;
+    }
+
+    expanded.push(...expandParamGrid(routePath, pathGrid, names));
+  });
+
+  return expanded;
+}
+
 /**
  * Expand one configured route entry into concrete route paths.
  *
@@ -222,6 +284,10 @@ export function expandRouteEntry(route: RouteEntry): string[] {
     }
 
     return [route];
+  }
+
+  if (isRouteGroup(route)) {
+    throw new Error("Route groups are expanded by expandRouteGroup(); they cannot be passed to expandRouteEntry()");
   }
 
   if (!route || typeof route !== "object" || typeof route.path !== "string") {
@@ -269,16 +335,27 @@ export function expandRouteEntry(route: RouteEntry): string[] {
 export function expandRoutes(routes: readonly RouteEntry[], { excludeRoutes = [], timeout }: { excludeRoutes?: readonly string[]; timeout?: number } = {}): ResolvedRoute[] {
   const expanded = new Map<string, ResolvedRoute>();
 
-  for (const route of routes) {
-    const entryTimeout = typeof route === "string" ? undefined : route.timeout;
+  const add = (routePath: string, routeTimeout: number | undefined): void => {
+    const normalized = normalizeRoutePath(routePath);
+    if (isExcluded(normalized, excludeRoutes) || expanded.has(normalized)) {
+      return;
+    }
 
-    for (const routePath of expandRouteEntry(route)) {
-      const normalized = normalizeRoutePath(routePath);
-      if (isExcluded(normalized, excludeRoutes) || expanded.has(normalized)) {
-        continue;
+    expanded.set(normalized, { path: normalized, timeout: routeTimeout ?? timeout });
+  };
+
+  for (const route of routes) {
+    if (isRouteGroup(route)) {
+      for (const routePath of expandRouteGroup(route)) {
+        add(routePath, route.timeout);
       }
 
-      expanded.set(normalized, { path: normalized, timeout: entryTimeout ?? timeout });
+      continue;
+    }
+
+    const entryTimeout = typeof route === "string" ? undefined : route.timeout;
+    for (const routePath of expandRouteEntry(route)) {
+      add(routePath, entryTimeout);
     }
   }
 

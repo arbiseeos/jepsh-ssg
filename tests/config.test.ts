@@ -15,6 +15,7 @@ import {
   type PromptAnswers,
   type PromptQuestion,
 } from "../src/config.js";
+import { expandRoutes } from "../src/routes.js";
 import type { Framework, SsgConfig } from "../src/types.js";
 import { captureConsole, cleanup, copyFixture, inDirectory, makeTempDir } from "./helpers.js";
 
@@ -101,7 +102,36 @@ describe("loadConfig", () => {
 
   it("validates route configuration before a build starts", async () => {
     await assert.rejects(load({ routes: [{ path: "/users/:id" }] }), /contains the placeholder ':id' but no params were provided/);
+    await assert.rejects(load({ routes: [{ params: { lang: ["en"] }, paths: ["/:lang/:category"] }] }), /contains the placeholder ':category' but no params were provided/);
     await assert.rejects(load({ routes: [] }), /Routes must be a non-empty array/);
+  });
+
+  it("expands route groups read from package.json", async () => {
+    const fresh = makeTempDir();
+    try {
+      const freshDist = copyFixture(fresh);
+      fs.writeFileSync(
+        path.join(fresh, "package.json"),
+        JSON.stringify({
+          name: "host",
+          type: "module",
+          jepsh: {
+            ssg: {
+              inputDir: "dist",
+              routes: ["/", { params: { lang: ["en", "ar"] }, paths: ["/:lang", "/:lang/our-products"] }],
+            },
+          },
+        })
+      );
+
+      const config = await loadConfig({ cwd: fresh, interactive: false, overrides: { inputDir: freshDist } });
+      assert.deepEqual(
+        expandRoutes(config.routes).map((route) => route.path),
+        ["/", "/en", "/ar", "/en/our-products", "/ar/our-products"]
+      );
+    } finally {
+      cleanup(fresh);
+    }
   });
 
   it("rejects invalid values", async () => {

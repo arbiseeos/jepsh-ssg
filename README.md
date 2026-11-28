@@ -241,6 +241,44 @@ export default {
 
 A placeholder is never crawled literally. `/:lang/our-products` without `params` is a configuration error, and so is the plain string `"/:lang/our-products"` or a parameter that does not appear in the path. Values are also rejected when they are empty or contain `/`, `?` or `#`.
 
+#### Sharing Parameters Across Routes
+
+When several routes use the same parameter values, put them in a **route group** instead of repeating `params` on every entry. Group parameters are scoped to the group, so unrelated sections can reuse a name such as `:category` with different values:
+
+```javascript
+export default {
+  ssg: {
+    routes: [
+      "/",
+      {
+        params: { lang: ["en", "es", "ar"] },
+        paths: ["/:lang", "/:lang/our-products", "/:lang/our-products/product-lorem-ipsum"],
+      },
+    ],
+  },
+};
+```
+
+The same group works in `package.json`, because a group is plain JSON:
+
+```json
+{
+  "jepsh": {
+    "ssg": {
+      "routes": [
+        "/",
+        {
+          "params": { "lang": ["en", "es", "ar"] },
+          "paths": ["/:lang", "/:lang/our-products", "/:lang/our-products/product-lorem-ipsum"]
+        }
+      ]
+    }
+  }
+}
+```
+
+Each path expands only the placeholders it contains, using the group's values. Every placeholder must be declared in the group's `params`; declarations a path does not use are allowed, so one shared domain can serve several paths. `paths` accepts path strings only — put `params` on the group. A group may also set `timeout`, which applies to all of its paths. Groups cannot be nested.
+
 The same expansion is available on the command line, where each bracketed group contributes values and several groups form the cartesian product:
 
 ```bash
@@ -250,28 +288,28 @@ npx jepsh-ssg --routes "/blog/:category[tech,design]/:slug[a,b]"   # 4 URLs
 
 #### Complete Configuration Reference
 
-| Field             | Type                                           | Description                                  | Default                   | CLI Flag             |
-| ----------------- | ---------------------------------------------- | -------------------------------------------- | ------------------------- | -------------------- |
-| `routes`          | `string[]` \| `object[]` \| `'auto'`           | Routes to crawl or 'auto' for detection      | `['/']`                   | `--routes`           |
-| `basePath`        | `string`                                       | Base path prefix for routes                  | `''`                      | `--base-path`        |
-| `baseUrl`         | `string`                                       | Base URL for sitemap and canonical URLs      | `'http://localhost:3000'` | `--base-url`         |
-| `inputDir`        | `string`                                       | Directory containing built application files | `'build'`                 | `-i, --input-dir`    |
-| `outDir`          | `string`                                       | Output directory for static files            | `'build-ssg'`             | `-o, --out-dir`      |
-| `port`            | `number`                                       | Development server port                      | `3000`                    | `-p, --port`         |
-| `concurrency`     | `number`                                       | Concurrent crawling processes                | `3`                       | `--concurrency`      |
-| `flatOutput`      | `boolean`                                      | Flat file structure vs. directory structure  | `false`                   | `--flat-output`      |
-| `hydrate`         | `boolean`                                      | Enable client-side hydration (experimental)  | `false`                   | `--hydrate`          |
-| `hydrateBundle`   | `string`                                       | Path to hydration JavaScript bundle          | `null`                    | `--hydrate-bundle`   |
-| `framework`       | `'react'` \| `'vite'` \| `'vue'` \| `'svelte'` | Target framework for optimization            | `'react'`                 | `--framework`        |
-| `batchSize`       | `number`                                       | Routes processed per batch                   | `50`                      | `--batch-size`       |
-| `incremental`     | `boolean`                                      | Enable incremental builds (experimental)     | `false`                   | `--incremental`      |
-| `timeout`         | `number`                                       | Timeout per route in milliseconds            | `30000`                   | `-t, --timeout`      |
-| `inlineCss`       | `boolean`                                      | Enable critical-CSS inlining with Beasties   | `false`                   | `--inline-css`       |
-| `sitemap`         | `boolean`                                      | Generate sitemap.xml                         | `false`                   | `--sitemap`          |
-| `excludeRoutes`   | `string[]`                                     | Routes to exclude from generation            | `[]`                      | `--exclude-routes`   |
-| `customSelectors` | `string[]`                                     | Custom CSS selectors for content             | `[]`                      | `--custom-selectors` |
-| `disableSandbox`  | `boolean`                                      | Launch Chrome without its sandbox            | `false`                   | `--disable-sandbox`  |
-| `browserArgs`     | `string[]`                                     | Extra Chrome launch arguments                | `[]`                      | `--browser-args`     |
+| Field             | Type                                                | Description                                  | Default                   | CLI Flag             |
+| ----------------- | --------------------------------------------------- | -------------------------------------------- | ------------------------- | -------------------- |
+| `routes`          | `string[]` \| `(Route \| RouteGroup)[]` \| `'auto'` | Routes to crawl or 'auto' for detection      | `['/']`                   | `--routes`           |
+| `basePath`        | `string`                                            | Base path prefix for routes                  | `''`                      | `--base-path`        |
+| `baseUrl`         | `string`                                            | Base URL for sitemap and canonical URLs      | `'http://localhost:3000'` | `--base-url`         |
+| `inputDir`        | `string`                                            | Directory containing built application files | `'build'`                 | `-i, --input-dir`    |
+| `outDir`          | `string`                                            | Output directory for static files            | `'build-ssg'`             | `-o, --out-dir`      |
+| `port`            | `number`                                            | Development server port                      | `3000`                    | `-p, --port`         |
+| `concurrency`     | `number`                                            | Concurrent crawling processes                | `3`                       | `--concurrency`      |
+| `flatOutput`      | `boolean`                                           | Flat file structure vs. directory structure  | `false`                   | `--flat-output`      |
+| `hydrate`         | `boolean`                                           | Enable client-side hydration (experimental)  | `false`                   | `--hydrate`          |
+| `hydrateBundle`   | `string`                                            | Path to hydration JavaScript bundle          | `null`                    | `--hydrate-bundle`   |
+| `framework`       | `'react'` \| `'vite'` \| `'vue'` \| `'svelte'`      | Target framework for optimization            | `'react'`                 | `--framework`        |
+| `batchSize`       | `number`                                            | Routes processed per batch                   | `50`                      | `--batch-size`       |
+| `incremental`     | `boolean`                                           | Enable incremental builds (experimental)     | `false`                   | `--incremental`      |
+| `timeout`         | `number`                                            | Timeout per route in milliseconds            | `30000`                   | `-t, --timeout`      |
+| `inlineCss`       | `boolean`                                           | Enable critical-CSS inlining with Beasties   | `false`                   | `--inline-css`       |
+| `sitemap`         | `boolean`                                           | Generate sitemap.xml                         | `false`                   | `--sitemap`          |
+| `excludeRoutes`   | `string[]`                                          | Routes to exclude from generation            | `[]`                      | `--exclude-routes`   |
+| `customSelectors` | `string[]`                                          | Custom CSS selectors for content             | `[]`                      | `--custom-selectors` |
+| `disableSandbox`  | `boolean`                                           | Launch Chrome without its sandbox            | `false`                   | `--disable-sandbox`  |
+| `browserArgs`     | `string[]`                                          | Extra Chrome launch arguments                | `[]`                      | `--browser-args`     |
 
 > **⚠️ Note**: CLI flags always override configuration file settings. Features like `--watch` and `--dry-run` are CLI-only but can be combined with file configuration.
 

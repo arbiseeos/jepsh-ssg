@@ -11,6 +11,7 @@ export type {
   Framework,
   ResolvedRoute,
   RouteEntry,
+  RouteGroup,
   RouteParamGrid,
   RouteParamSet,
   RouteParamValue,

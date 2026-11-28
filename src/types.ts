@@ -24,8 +24,22 @@ export type DynamicRoute = {
   timeout?: number;
 };
 
+/**
+ * A set of paths that share one set of parameter value domains.
+ *
+ * Group parameters are scoped to the group, so unrelated routes can reuse a
+ * name (such as `:category`) with different values. Every placeholder used by
+ * a path must be declared in `params`, while declarations a path does not use
+ * are allowed because they are shared with its siblings.
+ */
+export type RouteGroup = {
+  params: RouteParamGrid;
+  paths: readonly string[];
+  timeout?: number;
+};
+
 /** A route exactly as written in a config file or on the command line. */
-export type RouteEntry = string | DynamicRoute;
+export type RouteEntry = string | DynamicRoute | RouteGroup;
 
 /** A single crawlable URL after placeholders have been filled in. */
 export type ResolvedRoute = {

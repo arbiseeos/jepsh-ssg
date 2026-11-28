@@ -167,3 +167,43 @@ describe("expandRoutes", () => {
     assert.deepEqual(paths(routes), ["/blog/tech/a", "/blog/tech/b", "/blog/design/a", "/blog/design/b"]);
   });
 });
+
+describe("route groups", () => {
+  it("shares parameter values across every path in the group", () => {
+    assert.deepEqual(paths([{ params: { lang: ["en", "es"] }, paths: ["/:lang", "/:lang/our-products"] }]), ["/en", "/es", "/en/our-products", "/es/our-products"]);
+  });
+
+  it("expands only the placeholders each path contains, in path order", () => {
+    assert.deepEqual(paths([{ params: { lang: ["en", "es"], category: ["tech", "design"] }, paths: ["/:lang/:category"] }]), ["/en/tech", "/en/design", "/es/tech", "/es/design"]);
+    assert.deepEqual(paths([{ params: { lang: ["en", "es"], category: ["tech"] }, paths: ["/:lang"] }]), ["/en", "/es"]);
+  });
+
+  it("keeps static paths and applies the group timeout", () => {
+    assert.deepEqual(expandRoutes([{ params: { lang: ["en"] }, paths: ["/about", "/:lang"], timeout: 7 }], { timeout: 100 }), [
+      { path: "/about", timeout: 7 },
+      { path: "/en", timeout: 7 },
+    ]);
+  });
+
+  it("de-duplicates against plain entries and preserves configuration order", () => {
+    assert.deepEqual(paths(["/", { params: { lang: ["en"] }, paths: ["/", "/:lang"] }, { path: "/u/:id", params: [{ id: "1" }] }]), ["/", "/en", "/u/1"]);
+  });
+
+  it("rejects placeholders that are missing from the group params", () => {
+    assert.throws(() => expandRoutes([{ params: { lang: ["en"] }, paths: ["/:lang/:category"] }]), /contains the placeholder ':category' but no params were provided/);
+  });
+
+  it("rejects values that cannot be a path segment", () => {
+    assert.throws(() => expandRoutes([{ params: { lang: ["en/us"] }, paths: ["/:lang"] }]), /must not contain/);
+  });
+
+  it("rejects malformed groups", () => {
+    assert.throws(() => expandRoutes([{ params: {}, paths: ["/a"] }]), /at least one parameter/);
+    assert.throws(() => expandRoutes([{ params: { lang: [] }, paths: ["/:lang"] }]), /at least one value for ':lang'/);
+    assert.throws(() => expandRoutes([{ params: { lang: "en" } as never, paths: ["/:lang"] }]), /at least one value for ':lang'/);
+    assert.throws(() => expandRoutes([{ params: { lang: ["en"] }, paths: [] }]), /non-empty array/);
+    assert.throws(() => expandRoutes([{ params: { lang: ["en"] }, paths: [42] as never }]), /must be a route path string/);
+    assert.throws(() => expandRoutes([{ params: { lang: ["en"] }, paths: [{ path: "/:lang" }] as never }]), /must be a route path string/);
+    assert.throws(() => expandRoutes([{ params: { lang: ["en"] }, paths: ["/:lang/:lang"] }]), /uses the parameter ':lang' more than once/);
+  });
+});

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import chalk from "chalk";
 import ora, { type Ora } from "ora";
-import { expandRoutes } from "./routes.js";
+import { expandRoutes, extractParamNames, isRouteGroup } from "./routes.js";
 import type { CrawlResult, LogLabel, PackageJson, SsgConfig } from "./types.js";
 
 const MIME_TYPES: Record<string, string> = {
@@ -137,7 +137,17 @@ export function logHeader(): void {
 
 export function logConfig(config: SsgConfig): void {
   const expanded = expandRoutes(config.routes, { excludeRoutes: config.excludeRoutes, timeout: config.timeout });
-  const dynamic = config.routes.filter((route) => typeof route !== "string").length;
+  const dynamic = config.routes.reduce((count, route) => {
+    if (typeof route === "string") {
+      return count;
+    }
+
+    if (isRouteGroup(route)) {
+      return count + route.paths.filter((routePath) => extractParamNames(routePath).length > 0).length;
+    }
+
+    return count + 1;
+  }, 0);
   const routeCount = expanded.length;
   const date = new Date().toLocaleString();
   const content = `${chalk.bold("• Configuration")}
