@@ -67,3 +67,36 @@ jobs:
           push-git-tags: true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release for published version if missing
+        env:
+          GH_TOKEN: ${{ steps.release-bot-token.outputs.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          package_name="$(node -p 'require("./package.json").name')"
+          package_version="$(node -p 'require("./package.json").version')"
+          npm view "${package_name}@${package_version}" version --registry=https://npm.pkg.github.com >/dev/null
+
+          tag="v${package_version}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release $tag already exists."
+            exit 0
+          fi
+
+          release_commit="$(git log --all --format='%H' --grep='^chore: release$' -- package.json -n 1)"
+          if [ -z "$release_commit" ]; then
+            echo "::error::Could not find the Changesets release commit for $tag."
+            exit 1
+          fi
+
+          release_commit_version="$(git show "$release_commit:package.json" | node -p 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).version')"
+          if [ "$release_commit_version" != "$package_version" ]; then
+            echo "::error::Release commit $release_commit has version $release_commit_version, expected $package_version."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$tag" --generate-notes --verify-tag
+          else
+            gh release create "$tag" --title "$tag" --generate-notes --target "$release_commit"
+          fi
