@@ -45,6 +45,8 @@ jobs:
       - name: Create release PR or publish to GitHub Packages
         uses: changesets/action@v1
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          createGithubReleases: true
           publish: npm run release
           version: npm run version
           commit: "chore: release"
