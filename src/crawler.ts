@@ -254,7 +254,14 @@ export async function crawlRoutes({
               try {
                 // Wait for the document, not network idleness: apps may keep background requests open.
                 // Framework-specific selectors below determine when the rendered app is ready to capture.
+                // Wait for the document, not network idleness: apps may keep background requests open.
+                // Framework-specific selectors below determine when the rendered app is ready to capture.
                 await page.goto(
+                  fullUrl,
+                  routeTimeout === undefined
+                    ? { waitUntil: "domcontentloaded" }
+                    : { waitUntil: "domcontentloaded", timeout: routeTimeout }
+                );
                   fullUrl,
                   routeTimeout === undefined
                     ? { waitUntil: "domcontentloaded" }
