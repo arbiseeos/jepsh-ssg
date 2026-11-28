@@ -14,7 +14,7 @@ export function createProgram(): Command {
   const { version = "0.0.0" } = readPackageJson();
 
   return new Command()
-    .name("jepsh-ssg")
+    .name("sssg")
     .version(version)
     .option("--routes <routes>", "Comma-separated routes, or 'auto' (e.g., /,/about,/users/:id[1,2])")
     .option("--base-path <path>", "Base path for routes")
